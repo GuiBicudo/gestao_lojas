@@ -19,10 +19,11 @@ function uid() {
 
 function defaultState() {
   const fil1 = uid(), fil2 = uid(), fil3 = uid();
-  const exampleProduct = (impressora, filamentoId) => ({
+  const exampleProduct = (impressora, filamentoId, data) => ({
     id: uid(),
     example: true,
     produto: "(exemplo) Vaso Geométrico P",
+    data,
     tipo: "Impressão 3D",
     impressora,
     filamentoId,
@@ -46,10 +47,14 @@ function defaultState() {
       potA1Mini: 70,
       tarifa: 0.7894,
     },
+    profile: {
+      nome: "Gestão de Lojas",
+      icone: null,
+    },
     stores: {
-      shopee: [exampleProduct("A1", fil1)],
-      ml: [exampleProduct("A1 mini", fil2)],
-      tiktok: [exampleProduct("A1", fil3)],
+      shopee: [exampleProduct("A1", fil1, "2026-06-15")],
+      ml: [exampleProduct("A1 mini", fil2, "2026-07-10")],
+      tiktok: [exampleProduct("A1", fil3, "2026-08-05")],
     },
   };
 }
@@ -60,7 +65,17 @@ let state = defaultState();
 
 function normalizeState(parsed) {
   STORE_META.forEach(s => { if (!parsed.stores[s.key]) parsed.stores[s.key] = []; });
+  if (!parsed.profile) parsed.profile = { nome: "Gestão de Lojas", icone: null };
   return parsed;
+}
+
+// junta os produtos de todas as lojas num só array, marcando de qual loja cada um veio
+function allRows() {
+  const out = [];
+  STORE_META.forEach(meta => {
+    state.stores[meta.key].forEach(row => out.push(Object.assign({ _storeKey: meta.key, _storeLabel: meta.label, _storeColor: meta.color }, row)));
+  });
+  return out;
 }
 
 function saveState() {
@@ -233,6 +248,10 @@ function renderNav() {
 
   items.push(navGroupLabel("Visão Geral"));
   items.push(navItem("resumo", "Resumo", "▤"));
+  items.push(navItem("kpis", "KPIs", "▲"));
+
+  items.push(navGroupLabel("Conta"));
+  items.push(navItem("perfil", "Perfil", "◐"));
 
   nav.innerHTML = items.join("");
 
@@ -266,6 +285,8 @@ function renderContent() {
   if (activeTab === "filamentos") content.appendChild(renderFilamentsPanel());
   else if (activeTab === "parametros") content.appendChild(renderParamsPanel());
   else if (activeTab === "resumo") content.appendChild(renderResumoPanel());
+  else if (activeTab === "kpis") content.appendChild(renderKpisPanel());
+  else if (activeTab === "perfil") content.appendChild(renderPerfilPanel());
   else content.appendChild(renderStorePanel(activeTab));
 }
 
@@ -420,7 +441,7 @@ function renderStorePanel(storeKey) {
 
   if (rows.length === 0) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="20"><div class="empty-state">Nenhum produto cadastrado ainda. Clique em "Novo produto".</div></td>`;
+    tr.innerHTML = `<td colspan="21"><div class="empty-state">Nenhum produto cadastrado ainda. Clique em "Novo produto".</div></td>`;
     tbody.appendChild(tr);
   } else {
     rows.forEach(row => tbody.appendChild(storeRow(storeKey, row)));
@@ -428,7 +449,7 @@ function renderStorePanel(storeKey) {
 
   node.querySelector('[data-action="add-row"]').addEventListener("click", () => {
     state.stores[storeKey].push({
-      id: uid(), example: false, produto: "", tipo: "Impressão 3D", impressora: "",
+      id: uid(), example: false, produto: "", data: new Date().toISOString().slice(0, 10), tipo: "Impressão 3D", impressora: "",
       filamentoId: "", precoVenda: "", recebido: "", taxaME: false, peso: "", tempo: "", embalagem: "", gastoLevar: "",
     });
     saveState();
@@ -457,6 +478,7 @@ function storeRow(storeKey, row) {
 
   tr.innerHTML = `
     <td class="col-produto"><input type="text" value="${escapeAttr(row.produto)}" data-field="produto" placeholder="Nome do produto"></td>
+    <td><input type="date" value="${row.data || ""}" data-field="data"></td>
     <td><select data-field="tipo">${tipoOptions}</select></td>
     <td><select data-field="impressora">${printerOptions}</select></td>
     <td><select data-field="filamentoId">${filamentOptions}</select></td>
@@ -633,11 +655,307 @@ function renderResumoPanel() {
   return panel;
 }
 
+/* ---------- KPIs ---------- */
+
+// filtro de mês da tela de KPIs — vive só na sessão, não é salvo no banco
+let kpiState = { month: "" };
+
+function monthLabel(m) {
+  const [y, mo] = m.split("-");
+  const names = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+  return `${names[parseInt(mo, 10) - 1]}/${y}`;
+}
+
+function kpiCard(label, value, sub) {
+  return `<div class="summary-card"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
+}
+
+function renderKpisPanel() {
+  const panel = document.createElement("section");
+  panel.className = "panel";
+
+  // só entram nos KPIs pedidos reais (sem os produtos de exemplo) com data preenchida
+  const kpiRows = allRows().filter(r => !r.example && r.data);
+  const months = [...new Set(kpiRows.map(r => r.data.slice(0, 7)))].sort();
+  if (kpiState.month && !months.includes(kpiState.month)) kpiState.month = "";
+
+  const monthOptions = ['<option value="">Todos os meses</option>']
+    .concat(months.map(m => `<option value="${m}" ${m === kpiState.month ? "selected" : ""}>${monthLabel(m)}</option>`))
+    .join("");
+
+  panel.innerHTML = `
+    <header class="panel-header">
+      <div>
+        <h1 class="page-title">KPIs — Análise de Vendas</h1>
+        <p class="panel-sub">Baseado nos pedidos com a coluna "Data" preenchida em cada loja. Produtos de exemplo não entram na conta.</p>
+      </div>
+      <div class="panel-actions">
+        <select id="kpi-month">${monthOptions}</select>
+      </div>
+    </header>
+  `;
+
+  if (kpiRows.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = 'Nenhum pedido com data cadastrada ainda. Preencha a coluna "Data" nos seus produtos para ver os KPIs aqui.';
+    panel.appendChild(empty);
+
+    panel.querySelector("#kpi-month").addEventListener("change", e => {
+      kpiState.month = e.target.value;
+      renderContent();
+    });
+    return panel;
+  }
+
+  const filtered = kpiState.month ? kpiRows.filter(r => r.data.slice(0, 7) === kpiState.month) : kpiRows;
+
+  let faturamento = 0, custoTotal = 0, lucro = 0;
+  const pedidos = filtered.length;
+  filtered.forEach(row => {
+    const c = calcRow(row);
+    faturamento += n(row.precoVenda);
+    custoTotal += c.custoTotal;
+    lucro += c.lucro !== null ? c.lucro : 0;
+  });
+  const margem = faturamento ? lucro / faturamento : null;
+  const ticket = pedidos ? faturamento / pedidos : null;
+
+  const grid = document.createElement("div");
+  grid.className = "summary-grid";
+  grid.innerHTML = [
+    kpiCard("Faturamento", fmtCurrency(faturamento), `${pedidos} pedido(s)`),
+    kpiCard("Lucro Líquido", fmtCurrency(lucro), margem !== null ? `margem ${fmtPercent(margem)}` : "—"),
+    kpiCard("Custo Total", fmtCurrency(custoTotal), "filamento + energia + taxas + embalagem"),
+    kpiCard("Ticket Médio", ticket !== null ? fmtCurrency(ticket) : "—", "por pedido"),
+  ].join("");
+  panel.appendChild(grid);
+
+  panel.appendChild(renderMonthlyChart(kpiRows, months, kpiState.month));
+  panel.appendChild(renderKpiStoreBreakdown(filtered));
+  panel.appendChild(renderTopProducts(filtered));
+
+  panel.querySelector("#kpi-month").addEventListener("change", e => {
+    kpiState.month = e.target.value;
+    renderContent();
+  });
+
+  return panel;
+}
+
+function renderMonthlyChart(kpiRows, months, activeMonth) {
+  const wrap = document.createElement("div");
+  wrap.className = "panel-block";
+  wrap.innerHTML = `<h2 class="block-title">Faturamento por mês</h2>`;
+
+  const byMonth = months.map(m => {
+    const rows = kpiRows.filter(r => r.data.slice(0, 7) === m);
+    let fat = 0;
+    rows.forEach(r => { fat += n(r.precoVenda); });
+    return { m, fat, count: rows.length };
+  });
+  const max = Math.max(1, ...byMonth.map(x => x.fat));
+
+  const chart = document.createElement("div");
+  chart.className = "bar-chart";
+  byMonth.forEach(x => {
+    const pct = Math.max(2, (x.fat / max) * 100);
+    const row = document.createElement("div");
+    row.className = "bar-row" + (x.m === activeMonth ? " active" : "");
+    row.innerHTML = `
+      <span class="bar-label">${monthLabel(x.m)}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:${pct}%"></span></span>
+      <span class="bar-value">${fmtCurrency(x.fat)} · ${x.count} pedido(s)</span>
+    `;
+    chart.appendChild(row);
+  });
+  wrap.appendChild(chart);
+  return wrap;
+}
+
+function renderKpiStoreBreakdown(rows) {
+  const wrap = document.createElement("div");
+  wrap.className = "panel-block";
+  wrap.innerHTML = `<h2 class="block-title">Por loja (período selecionado)</h2>`;
+
+  const byStore = STORE_META.map(meta => {
+    const storeRows = rows.filter(r => r._storeKey === meta.key);
+    let fat = 0;
+    storeRows.forEach(r => { fat += n(r.precoVenda); });
+    return { meta, fat, count: storeRows.length };
+  });
+  const max = Math.max(1, ...byStore.map(x => x.fat));
+
+  const chart = document.createElement("div");
+  chart.className = "bar-chart";
+  byStore.forEach(x => {
+    const pct = Math.max(2, (x.fat / max) * 100);
+    const row = document.createElement("div");
+    row.className = "bar-row";
+    row.innerHTML = `
+      <span class="bar-label"><span class="nav-dot" style="background:${x.meta.color}"></span>${x.meta.label}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:${pct}%;background:${x.meta.color}"></span></span>
+      <span class="bar-value">${fmtCurrency(x.fat)} · ${x.count} pedido(s)</span>
+    `;
+    chart.appendChild(row);
+  });
+  wrap.appendChild(chart);
+  return wrap;
+}
+
+function renderTopProducts(rows) {
+  const wrap = document.createElement("div");
+  wrap.className = "panel-block";
+  wrap.innerHTML = `<h2 class="block-title">Top produtos por lucro (período selecionado)</h2>`;
+
+  const byProduct = {};
+  rows.forEach(r => {
+    const key = (r.produto || "(sem nome)").trim() || "(sem nome)";
+    const c = calcRow(r);
+    if (!byProduct[key]) byProduct[key] = { produto: key, lucro: 0, pedidos: 0, faturamento: 0 };
+    byProduct[key].lucro += c.lucro !== null ? c.lucro : 0;
+    byProduct[key].faturamento += n(r.precoVenda);
+    byProduct[key].pedidos += 1;
+  });
+  const top = Object.values(byProduct).sort((a, b) => b.lucro - a.lucro).slice(0, 5);
+
+  if (top.length === 0) {
+    wrap.innerHTML += `<div class="empty-state">Sem dados para esse período.</div>`;
+    return wrap;
+  }
+
+  const table = document.createElement("table");
+  table.className = "data-table";
+  table.innerHTML = `
+    <thead><tr><th>Produto</th><th class="num">Pedidos</th><th class="num">Faturamento (R$)</th><th class="num">Lucro (R$)</th></tr></thead>
+    <tbody>${top.map(p => `
+      <tr>
+        <td>${escapeHtml(p.produto)}</td>
+        <td class="num">${p.pedidos}</td>
+        <td class="num">${fmtCurrency(p.faturamento)}</td>
+        <td class="num">${fmtCurrency(p.lucro)}</td>
+      </tr>
+    `).join("")}</tbody>
+  `;
+  const tblWrap = document.createElement("div");
+  tblWrap.className = "table-wrap";
+  tblWrap.appendChild(table);
+  wrap.appendChild(tblWrap);
+  return wrap;
+}
+
+/* ---------- Perfil ---------- */
+
+function resizeImageToDataURL(file, maxSize) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("Não foi possível ler essa imagem."));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height) {
+          if (width > maxSize) { height = Math.round(height * (maxSize / width)); width = maxSize; }
+        } else {
+          if (height > maxSize) { width = Math.round(width * (maxSize / height)); height = maxSize; }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/png"));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderBrand() {
+  const nameEl = document.querySelector(".brand-text strong");
+  const markEl = document.querySelector(".brand-mark");
+  const nome = (state.profile && state.profile.nome) || "Gestão de Lojas";
+  if (nameEl) nameEl.textContent = nome;
+  if (markEl) {
+    markEl.innerHTML = state.profile && state.profile.icone
+      ? `<img src="${state.profile.icone}" alt="Ícone" class="brand-icon-img">`
+      : "◇";
+  }
+  document.title = `${nome} — Impressão 3D`;
+}
+
+function renderPerfilPanel() {
+  const panel = document.createElement("section");
+  panel.className = "panel";
+
+  const icone = state.profile.icone;
+  panel.innerHTML = `
+    <header class="panel-header">
+      <div>
+        <h1 class="page-title">Perfil</h1>
+        <p class="panel-sub">Personalize o nome e o ícone que aparecem no menu lateral.</p>
+      </div>
+    </header>
+    <div class="param-grid">
+      <div class="param-card">
+        <label>Ícone da loja</label>
+        <div class="profile-icon-preview">${icone ? `<img src="${icone}" alt="Ícone atual">` : "◇"}</div>
+        <div class="profile-icon-actions">
+          <label class="ghost-btn small" for="profile-icon-input">Escolher imagem</label>
+          <input type="file" id="profile-icon-input" accept="image/*" hidden>
+          ${icone ? `<button class="ghost-btn small" id="profile-icon-remove">Remover</button>` : ""}
+        </div>
+        <p class="param-note">A imagem é redimensionada automaticamente. Use PNG ou JPG.</p>
+      </div>
+      <div class="param-card">
+        <label>Nome da loja</label>
+        <input type="text" class="text-field" id="profile-nome" value="${escapeAttr(state.profile.nome)}" placeholder="Ex: Minha Loja 3D">
+        <p class="param-note">Esse nome aparece no topo do menu lateral.</p>
+      </div>
+    </div>
+  `;
+
+  panel.querySelector("#profile-nome").addEventListener("input", e => {
+    state.profile.nome = e.target.value;
+    saveState();
+    renderBrand();
+  });
+
+  panel.querySelector("#profile-icon-input").addEventListener("change", async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const dataUrl = await resizeImageToDataURL(file, 160);
+      state.profile.icone = dataUrl;
+      saveState();
+      renderBrand();
+      renderContent();
+      showToast("Ícone atualizado.");
+    } catch (err) {
+      console.error(err);
+      alert("Não foi possível carregar essa imagem.");
+    }
+  });
+
+  const removeBtn = panel.querySelector("#profile-icon-remove");
+  if (removeBtn) {
+    removeBtn.addEventListener("click", () => {
+      state.profile.icone = null;
+      saveState();
+      renderBrand();
+      renderContent();
+      showToast("Ícone removido.");
+    });
+  }
+
+  return panel;
+}
+
 /* ===================== Export / Import ===================== */
 
 function exportStoreCSV(storeKey) {
   const meta = STORE_META.find(s => s.key === storeKey);
-  const headers = ["Produto", "Tipo", "Impressora", "Filamento", "Venda (R$)", "Recebido (R$)",
+  const headers = ["Produto", "Data", "Tipo", "Impressora", "Filamento", "Venda (R$)", "Recebido (R$)",
     "Taxa (R$)", "Taxa (%)", "ME 4%", "Taxa ME (R$)", "Peso (g)", "Tempo (h)", "Filamento (R$)", "Energia (R$)",
     "Embalagem (R$)", "Gasto p/ Levar (R$)", "Custo Total (R$)", "Lucro (R$)", "Margem (%)"];
 
@@ -646,7 +964,7 @@ function exportStoreCSV(storeKey) {
     const c = calcRow(row);
     const filName = state.filaments.find(f => f.id === row.filamentoId)?.nome || "";
     const cells = [
-      row.produto, row.tipo, row.impressora, filName,
+      row.produto, row.data || "", row.tipo, row.impressora, filName,
       row.precoVenda, row.recebido,
       c.taxaRS ?? "", c.taxaPct !== null ? (c.taxaPct * 100).toFixed(1) : "",
       row.taxaME ? "Sim" : "Não", c.custoTaxaME.toFixed(2),
@@ -687,12 +1005,12 @@ document.getElementById("file-import").addEventListener("change", (e) => {
       const imported = JSON.parse(reader.result);
       if (!imported.filaments || !imported.stores || !imported.params) throw new Error("formato inválido");
       if (!confirm("Importar este backup vai substituir todos os dados atuais. Continuar?")) return;
-      STORE_META.forEach(s => { if (!imported.stores[s.key]) imported.stores[s.key] = []; });
-      state = imported;
+      state = normalizeState(imported);
       saveState();
       activeTab = "filamentos";
       renderNav();
       renderContent();
+      renderBrand();
       showToast("Backup importado com sucesso.");
     } catch (err) {
       alert("Não foi possível importar este arquivo. Verifique se é um backup válido gerado por este site.");
@@ -759,6 +1077,7 @@ async function init() {
   }
   renderNav();
   renderContent();
+  renderBrand();
   applySidebarState();
 }
 
