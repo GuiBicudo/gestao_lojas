@@ -20,8 +20,8 @@ const DEVOLUCAO_CATEGORIAS = [
 // dentro de "Defeito" precisa dizer se o produto voltou danificado (perda total dos custos)
 // ou se a plataforma pagou o valor do produto (só entra a taxa de R$ 15)
 const DEFEITO_SUBTIPOS = [
-  { key: "danificado", label: "Danificado" },
-  { key: "pago_plataforma", label: "Pago pela plataforma" },
+  { key: "danificado", label: "Defeito de fabricação" },
+  { key: "pago_plataforma", label: "Danificado: Pago pela plataforma" },
 ];
 const CUSTO_EXTRA_DEFEITO = 15.0;
 
@@ -130,8 +130,8 @@ function findProductByOrderNumber(numeroPedido) {
 }
 
 // custo (impacto financeiro) de uma devolução:
-// - defeito + danificado: perde tudo que foi gasto no produto (custo total) + R$ 15 de taxa
-// - defeito + pago pela plataforma: a loja reembolsa o valor do produto, só entra a taxa de R$ 15
+// - defeito de fabricação: não recebe nada, perde embalagem + gasto p/ levar + R$ 15 de taxa
+// - danificado: pago pela plataforma: recebe o valor completo — sem custo extra de devolução
 // - defeito sem sub-tipo escolhido ainda: custo indefinido (pede pra completar o cadastro)
 // - arrependimento / não encontrou o cliente: só perde embalagem + gasto p/ levar (o produto
 //   volta inteiro e pode ser revendido, então o custo de produção não conta como perda)
@@ -140,14 +140,13 @@ function calcDevolucao(dev) {
   if (!match) return { match: null, custoTotal: null };
 
   const row = match.row;
-  const rowCalc = calcRow(row); // custoTotal aqui é sempre o custo "bruto", sem a lógica de devolução
   const embalagem = n(row.embalagem);
   const gastoLevar = n(row.gastoLevar);
 
   let custoTotal = null;
   if (dev.categoria === "defeito") {
-    if (dev.subtipoDefeito === "danificado") custoTotal = rowCalc.custoTotal + CUSTO_EXTRA_DEFEITO;
-    else if (dev.subtipoDefeito === "pago_plataforma") custoTotal = CUSTO_EXTRA_DEFEITO;
+    if (dev.subtipoDefeito === "danificado") custoTotal = embalagem + gastoLevar + CUSTO_EXTRA_DEFEITO;
+    else if (dev.subtipoDefeito === "pago_plataforma") custoTotal = 0;
   } else if (dev.categoria === "arrependimento" || dev.categoria === "nao_encontrado") {
     custoTotal = embalagem + gastoLevar;
   }
@@ -322,10 +321,10 @@ function calcRow(row) {
   const custoTotal = custoFilamento + custoEnergia + embalagem + gastoLevar + insumos + custoTaxaME;
 
   // se esse pedido está registrado na aba Devoluções, o lucro final muda:
-  // - defeito + danificado: o produto voltou estragado, você não recebe nada e perde tudo
-  //   que gastou nele (custo total), mais a taxa de devolução de R$ 15
-  // - defeito + pago pela plataforma: a loja reembolsa o valor total do produto (você recebe
-  //   normalmente), só entra a taxa extra de R$ 15
+  // - defeito de fabricação: você não recebe nada e perde embalagem + gasto p/ levar,
+  //   mais a taxa de devolução de R$ 15
+  // - danificado: pago pela plataforma: a loja reembolsa o valor total do produto — recebe
+  //   normalmente, sem custo extra de devolução
   // - defeito sem sub-tipo escolhido ainda: mantém o cálculo normal até você completar o cadastro
   // - arrependimento / não encontrou o cliente: você não recebe nada pela venda — só perde
   //   o que já gastou com embalagem e frete (o produto volta inteiro e pode ser revendido)
@@ -333,10 +332,10 @@ function calcRow(row) {
 
   let lucro, margem;
   if (devolucao && devolucao.categoria === "defeito" && devolucao.subtipoDefeito === "danificado") {
-    lucro = -custoTotal - CUSTO_EXTRA_DEFEITO;
+    lucro = -(embalagem + gastoLevar) - CUSTO_EXTRA_DEFEITO;
     margem = precoVenda ? lucro / precoVenda : null;
   } else if (devolucao && devolucao.categoria === "defeito" && devolucao.subtipoDefeito === "pago_plataforma") {
-    lucro = recebido !== null ? recebido - custoTotal - CUSTO_EXTRA_DEFEITO : null;
+    lucro = recebido !== null ? recebido - custoTotal : null;
     margem = lucro !== null && precoVenda ? lucro / precoVenda : null;
   } else if (devolucao && (devolucao.categoria === "arrependimento" || devolucao.categoria === "nao_encontrado")) {
     lucro = -(embalagem + gastoLevar);
@@ -815,7 +814,7 @@ function updateRowCalcCells(tr, row) {
       let catLabel = DEVOLUCAO_CATEGORIAS.find(x => x.key === c.devolucao.categoria)?.label || "Devolução";
       if (c.devolucao.categoria === "defeito") {
         const subLabel = DEFEITO_SUBTIPOS.find(x => x.key === c.devolucao.subtipoDefeito)?.label;
-        catLabel = subLabel ? `Defeito — ${subLabel}` : "Defeito — tipo pendente";
+        catLabel = subLabel || "Defeito — tipo pendente";
       }
       lucroCell.innerHTML = `${fmtCurrency(c.lucro)} <span class="devolucao-tag" title="Pedido em devolução: ${catLabel}">↺</span>`;
     } else {
@@ -1080,7 +1079,7 @@ function renderDevolucoesPanel() {
     <header class="panel-header">
       <div>
         <h1 class="page-title">Devoluções</h1>
-        <p class="panel-sub">Digite o número do pedido pra puxar o produto automaticamente. O Lucro desse pedido nas telas de Lojas, Resumo e KPIs é atualizado sozinho: em defeito "Pago pela plataforma" você recebe o valor normal, só entra a taxa de R$ 15,00; em defeito "Danificado" você perde tudo que gastou no produto + R$ 15,00; em arrependimento ou pedido não encontrado, você não recebe nada e só perde embalagem + gasto p/ levar.</p>
+        <p class="panel-sub">Digite o número do pedido pra puxar o produto automaticamente. O Lucro desse pedido nas telas de Lojas, Resumo e KPIs é atualizado sozinho: em "Danificado: Pago pela plataforma" você recebe o valor completo, sem custo extra; em "Defeito de fabricação" você não recebe nada e perde embalagem + gasto p/ levar + R$ 15,00 de taxa; em arrependimento ou pedido não encontrado, você não recebe nada e só perde embalagem + gasto p/ levar.</p>
       </div>
       <div class="panel-actions">
         <button class="primary-btn" data-action="add-row">+ Nova devolução</button>
@@ -1231,7 +1230,7 @@ function updateDevolucaoRowCalcCells(tr, dev) {
       custoCell.title = "";
     } else if (dev.categoria === "defeito") {
       custoCell.textContent = "—";
-      custoCell.title = 'Escolha o tipo de defeito ("Danificado" ou "Pago pela plataforma") para calcular o custo.';
+      custoCell.title = 'Escolha o tipo de defeito ("Defeito de fabricação" ou "Danificado: Pago pela plataforma") para calcular o custo.';
     } else {
       custoCell.textContent = "—";
       custoCell.title = "";
@@ -1354,6 +1353,43 @@ function kpiCard(label, value, sub) {
   return `<div class="summary-card"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
 }
 
+// soma (ou subtrai) meses de uma string "YYYY-MM", tratando virada de ano
+function monthAddOffset(monthStr, offset) {
+  const [y, m] = monthStr.split("-").map(Number);
+  const total = y * 12 + (m - 1) + offset;
+  const ny = Math.floor(total / 12);
+  const nm = ((total % 12) + 12) % 12 + 1;
+  return `${ny}-${String(nm).padStart(2, "0")}`;
+}
+
+// Crescimento nos últimos 12 meses: compara o faturamento do mês mais recente com o de 12 meses
+// atrás — mas se o histórico for menor que isso, usa o primeiro mês que já teve faturamento
+// como ponto de partida, em vez de "quebrar" ou considerar um mês sem dado nenhum.
+// Não é afetado pelos filtros de Ano/Mês (sempre olha a janela móvel mais recente); respeita
+// só o filtro de loja, porque "kpiRows" já vem filtrado por loja de quem chamou.
+function calcCrescimento12Meses(kpiRows) {
+  const meses = [...new Set(kpiRows.map(r => r.data.slice(0, 7)))].sort();
+  if (meses.length < 2) return { valor: null, detalhe: "dados insuficientes" };
+
+  const ultimoMes = meses[meses.length - 1];
+  const primeiroMes = meses[0];
+  const janela12 = monthAddOffset(ultimoMes, -11);
+  const mesBase = primeiroMes > janela12 ? primeiroMes : janela12;
+
+  if (mesBase === ultimoMes) return { valor: null, detalhe: "dados insuficientes" };
+
+  const faturamentoDoMes = m => kpiRows.filter(r => r.data.slice(0, 7) === m).reduce((s, r) => s + n(r.precoVenda), 0);
+  const fatBase = faturamentoDoMes(mesBase);
+  const fatUltimo = faturamentoDoMes(ultimoMes);
+
+  if (fatBase <= 0) return { valor: null, detalhe: "sem faturamento no mês inicial" };
+
+  return {
+    valor: (fatUltimo - fatBase) / fatBase,
+    detalhe: `${monthLabel(mesBase)} → ${monthLabel(ultimoMes)}`,
+  };
+}
+
 function renderKpisPanel() {
   const panel = document.createElement("section");
   panel.className = "panel";
@@ -1428,16 +1464,20 @@ function renderKpisPanel() {
     return true;
   });
 
-  let faturamento = 0, custoTotal = 0, lucro = 0;
+  let faturamento = 0, custoTotal = 0, lucro = 0, devolvidos = 0;
   const pedidos = filtered.length;
   filtered.forEach(row => {
     const c = calcRow(row);
     faturamento += n(row.precoVenda);
     custoTotal += c.custoTotal;
     lucro += c.lucro !== null ? c.lucro : 0;
+    if (row.numeroPedido && findDevolucaoByOrderNumber(row.numeroPedido)) devolvidos++;
   });
   const margem = faturamento ? lucro / faturamento : null;
   const ticket = pedidos ? faturamento / pedidos : null;
+  const taxaDevolucao = pedidos ? devolvidos / pedidos : null;
+
+  const crescimento = calcCrescimento12Meses(kpiRows);
 
   const grid = document.createElement("div");
   grid.className = "summary-grid";
@@ -1446,6 +1486,8 @@ function renderKpisPanel() {
     kpiCard("Lucro Líquido", fmtCurrency(lucro), margem !== null ? `margem ${fmtPercent(margem)}` : "—"),
     kpiCard("Custo Total", fmtCurrency(custoTotal), "filamento + energia + taxas + embalagem"),
     kpiCard("Ticket Médio", ticket !== null ? fmtCurrency(ticket) : "—", "por pedido"),
+    kpiCard("Devoluções", String(devolvidos), taxaDevolucao !== null ? `${fmtPercent(taxaDevolucao)} dos pedidos` : "sem pedidos"),
+    kpiCard("Crescimento (12 meses)", crescimento.valor !== null ? fmtPercent(crescimento.valor) : "—", crescimento.detalhe),
   ].join("");
   panel.appendChild(grid);
 
