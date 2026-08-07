@@ -39,51 +39,6 @@
 
 </div>
 
-<template id="tpl-store">
-  <section class="panel">
-    <header class="panel-header">
-      <div>
-        <h1 class="store-title"></h1>
-        <p class="panel-sub">Preencha os campos de cada produto. Os valores calculados atualizam sozinhos.</p>
-      </div>
-      <div class="panel-actions">
-        <button class="primary-btn" data-action="add-row">+ Novo produto</button>
-        <button class="ghost-btn small" data-action="export-csv">Exportar CSV</button>
-      </div>
-    </header>
-    <div class="table-wrap">
-      <table class="data-table store-table">
-        <thead>
-          <tr>
-            <th class="col-produto">Produto</th>
-            <th>Data</th>
-            <th>Tipo</th>
-            <th>Impressora</th>
-            <th>Filamento</th>
-            <th class="num">Venda (R$)</th>
-            <th class="num">Recebido (R$)</th>
-            <th class="num calc">Taxa (R$)</th>
-            <th class="num calc">Taxa (%)</th>
-            <th class="center">ME 4%</th>
-            <th class="num calc">Taxa ME (R$)</th>
-            <th class="num">Peso (g)</th>
-            <th class="num">Tempo (h)</th>
-            <th class="num calc">Filamento (R$)</th>
-            <th class="num calc">Energia (R$)</th>
-            <th class="num">Embalagem (R$)</th>
-            <th class="num">Gasto p/ Levar (R$)</th>
-            <th class="num calc">Custo Total (R$)</th>
-            <th class="num calc">Lucro (R$)</th>
-            <th class="num calc">Margem</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </section>
-</template>
-
 <script src="app.js"></script>
 </body>
 </html>

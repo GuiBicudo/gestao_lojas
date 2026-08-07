@@ -9,7 +9,8 @@ const STORE_META = [
 ];
 
 const PRINTERS = ["A1", "A1 mini"];
-const TIPOS = ["Impressão 3D", "Revenda"];
+const TIPO_3D = "Impressão 3D";
+const TIPO_REVENDA = "Revenda";
 
 /* ===================== Estado ===================== */
 
@@ -19,12 +20,12 @@ function uid() {
 
 function defaultState() {
   const fil1 = uid(), fil2 = uid(), fil3 = uid();
-  const exampleProduct = (impressora, filamentoId, data) => ({
+  const exampleProduct3D = (impressora, filamentoId, data) => ({
     id: uid(),
     example: true,
     produto: "(exemplo) Vaso Geométrico P",
     data,
-    tipo: "Impressão 3D",
+    tipo: TIPO_3D,
     impressora,
     filamentoId,
     precoVenda: 45.0,
@@ -33,6 +34,20 @@ function defaultState() {
     peso: 120,
     tempo: 3.5,
     embalagem: 2.0,
+    gastoLevar: 1.0,
+  });
+
+  const exampleProdutoRevenda = (data) => ({
+    id: uid(),
+    example: true,
+    produto: "(exemplo) Mini Console Portátil",
+    data,
+    tipo: TIPO_REVENDA,
+    precoVenda: 89.9,
+    recebido: 76.0,
+    taxaME: false,
+    insumos: 25.0,
+    embalagem: 3.0,
     gastoLevar: 1.0,
   });
 
@@ -52,9 +67,9 @@ function defaultState() {
       icone: null,
     },
     stores: {
-      shopee: [exampleProduct("A1", fil1, "2026-06-15")],
-      ml: [exampleProduct("A1 mini", fil2, "2026-07-10")],
-      tiktok: [exampleProduct("A1", fil3, "2026-08-05")],
+      shopee: [exampleProduct3D("A1", fil1, "2026-06-15"), exampleProdutoRevenda("2026-06-20")],
+      ml: [exampleProduct3D("A1 mini", fil2, "2026-07-10"), exampleProdutoRevenda("2026-07-18")],
+      tiktok: [exampleProduct3D("A1", fil3, "2026-08-05"), exampleProdutoRevenda("2026-08-06")],
     },
   };
 }
@@ -221,10 +236,11 @@ function calcRow(row) {
   const custoEnergia = n(row.tempo) * (getPrinterPower(row.impressora) / 1000) * n(state.params.tarifa);
   const embalagem = n(row.embalagem);
   const gastoLevar = n(row.gastoLevar);
+  const insumos = n(row.insumos); // custo de insumos dos produtos de revenda (ex: pendrive, memory card)
   // taxa opcional de 4% (ME) sobre o preço de venda — usada nas lojas em que você vende como ME
   const custoTaxaME = row.taxaME ? n(row.precoVenda) * 0.04 : 0;
 
-  const custoTotal = custoFilamento + custoEnergia + embalagem + gastoLevar + custoTaxaME;
+  const custoTotal = custoFilamento + custoEnergia + embalagem + gastoLevar + insumos + custoTaxaME;
   const lucro = recebido !== null ? recebido - custoTotal : null;
   const margem = lucro !== null && precoVenda ? lucro / precoVenda : null;
 
@@ -427,41 +443,144 @@ function renderParamsPanel() {
 
 /* ---------- Lojas ---------- */
 
+// qual sub-aba está ativa dentro de cada loja — vive só na sessão, não é salva no banco
+let storeViewType = "3d";
+
+function head3D() {
+  return `
+    <th class="col-produto">Produto</th>
+    <th>Data</th>
+    <th>Impressora</th>
+    <th>Filamento</th>
+    <th class="num">Venda (R$)</th>
+    <th class="num">Recebido (R$)</th>
+    <th class="num calc">Taxa (R$)</th>
+    <th class="num calc">Taxa (%)</th>
+    <th class="center">ME 4%</th>
+    <th class="num calc">Taxa ME (R$)</th>
+    <th class="num">Peso (g)</th>
+    <th class="num">Tempo (h)</th>
+    <th class="num calc">Filamento (R$)</th>
+    <th class="num calc">Energia (R$)</th>
+    <th class="num">Embalagem (R$)</th>
+    <th class="num">Gasto p/ Levar (R$)</th>
+    <th class="num calc">Custo Total (R$)</th>
+    <th class="num calc">Lucro (R$)</th>
+    <th class="num calc">Margem</th>
+    <th></th>
+  `;
+}
+
+function headProdutos() {
+  return `
+    <th class="col-produto">Produto</th>
+    <th>Data</th>
+    <th class="num">Venda (R$)</th>
+    <th class="num">Recebido (R$)</th>
+    <th class="num calc">Taxa (R$)</th>
+    <th class="num calc">Taxa (%)</th>
+    <th class="center">ME 4%</th>
+    <th class="num calc">Taxa ME (R$)</th>
+    <th class="num">Insumos (R$)</th>
+    <th class="num">Embalagem (R$)</th>
+    <th class="num">Gasto p/ Levar (R$)</th>
+    <th class="num calc">Custo Total (R$)</th>
+    <th class="num calc">Lucro (R$)</th>
+    <th class="num calc">Margem</th>
+    <th></th>
+  `;
+}
+
 function renderStorePanel(storeKey) {
   const meta = STORE_META.find(s => s.key === storeKey);
-  const tpl = document.getElementById("tpl-store");
-  const node = tpl.content.cloneNode(true);
-  const section = node.querySelector(".panel");
+  const is3D = storeViewType === "3d";
+  const rows = state.stores[storeKey].filter(r => is3D ? r.tipo !== TIPO_REVENDA : r.tipo === TIPO_REVENDA);
 
-  const title = node.querySelector(".store-title");
-  title.innerHTML = `<span class="store-dot" style="background:${meta.color}"></span>${meta.label} — Gestão de Produtos`;
+  const panel = document.createElement("section");
+  panel.className = "panel";
+  panel.innerHTML = `
+    <header class="panel-header">
+      <div>
+        <h1 class="store-title"><span class="store-dot" style="background:${meta.color}"></span>${meta.label} — Gestão de Produtos</h1>
+        <p class="panel-sub">Preencha os campos de cada produto. Os valores calculados atualizam sozinhos.</p>
+      </div>
+      <div class="panel-actions">
+        <button class="primary-btn" data-action="add-row">+ Novo produto${is3D ? " 3D" : ""}</button>
+        <button class="ghost-btn small" data-action="export-csv">Exportar CSV</button>
+      </div>
+    </header>
+    <div class="segmented" id="store-type-tabs">
+      <button class="segmented-btn ${is3D ? "active" : ""}" data-type="3d">Impressão 3D</button>
+      <button class="segmented-btn ${!is3D ? "active" : ""}" data-type="produtos">Produtos</button>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table store-table">
+        <thead><tr>${is3D ? head3D() : headProdutos()}</tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  `;
 
-  const tbody = node.querySelector("tbody");
-  const rows = state.stores[storeKey];
-
+  const tbody = panel.querySelector("tbody");
   if (rows.length === 0) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="21"><div class="empty-state">Nenhum produto cadastrado ainda. Clique em "Novo produto".</div></td>`;
+    tr.innerHTML = `<td colspan="${is3D ? 20 : 15}"><div class="empty-state">Nenhum produto cadastrado ainda. Clique em "Novo produto".</div></td>`;
     tbody.appendChild(tr);
   } else {
-    rows.forEach(row => tbody.appendChild(storeRow(storeKey, row)));
+    rows.forEach(row => tbody.appendChild(is3D ? storeRow3D(storeKey, row) : storeRowProduto(storeKey, row)));
   }
 
-  node.querySelector('[data-action="add-row"]').addEventListener("click", () => {
-    state.stores[storeKey].push({
-      id: uid(), example: false, produto: "", data: new Date().toISOString().slice(0, 10), tipo: "Impressão 3D", impressora: "",
-      filamentoId: "", precoVenda: "", recebido: "", taxaME: false, peso: "", tempo: "", embalagem: "", gastoLevar: "",
-    });
+  panel.querySelector('[data-action="add-row"]').addEventListener("click", () => {
+    const base = {
+      id: uid(), example: false, produto: "", data: new Date().toISOString().slice(0, 10),
+      precoVenda: "", recebido: "", taxaME: false, embalagem: "", gastoLevar: "",
+    };
+    const newRow = is3D
+      ? Object.assign(base, { tipo: TIPO_3D, impressora: "", filamentoId: "", peso: "", tempo: "" })
+      : Object.assign(base, { tipo: TIPO_REVENDA, insumos: "" });
+    state.stores[storeKey].push(newRow);
     saveState();
     renderContent();
   });
 
-  node.querySelector('[data-action="export-csv"]').addEventListener("click", () => exportStoreCSV(storeKey));
+  panel.querySelector('[data-action="export-csv"]').addEventListener("click", () => exportStoreCSV(storeKey));
 
-  return section;
+  panel.querySelectorAll(".segmented-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      storeViewType = btn.dataset.type;
+      renderContent();
+    });
+  });
+
+  return panel;
 }
 
-function storeRow(storeKey, row) {
+function bindRowInputs(tr, row) {
+  tr.querySelectorAll("input, select").forEach(el => {
+    const evt = el.type === "checkbox" ? "change" : "input";
+    el.addEventListener(evt, () => {
+      const field = el.dataset.field;
+      if (field === "taxaME") {
+        row.taxaME = el.checked;
+      } else {
+        row[field] = el.value;
+      }
+      saveState();
+      updateRowCalcCells(tr, row);
+    });
+  });
+}
+
+function bindRowDelete(tr, storeKey, row) {
+  tr.querySelector('[data-action="delete"]').addEventListener("click", () => {
+    if (!confirm(`Remover o produto "${row.produto || "(sem nome)"}"?`)) return;
+    state.stores[storeKey] = state.stores[storeKey].filter(r => r.id !== row.id);
+    saveState();
+    renderContent();
+  });
+}
+
+function storeRow3D(storeKey, row) {
   const tr = document.createElement("tr");
   tr.dataset.rowId = row.id;
   if (row.example) tr.classList.add("example-row");
@@ -474,12 +593,9 @@ function storeRow(storeKey, row) {
     .concat(PRINTERS.map(p => `<option value="${p}" ${p === row.impressora ? "selected" : ""}>${p}</option>`))
     .join("");
 
-  const tipoOptions = TIPOS.map(t => `<option value="${t}" ${t === row.tipo ? "selected" : ""}>${t}</option>`).join("");
-
   tr.innerHTML = `
     <td class="col-produto"><input type="text" value="${escapeAttr(row.produto)}" data-field="produto" placeholder="Nome do produto"></td>
     <td><input type="date" value="${row.data || ""}" data-field="data"></td>
-    <td><select data-field="tipo">${tipoOptions}</select></td>
     <td><select data-field="impressora">${printerOptions}</select></td>
     <td><select data-field="filamentoId">${filamentOptions}</select></td>
     <td class="num"><input type="number" step="0.01" value="${row.precoVenda}" data-field="precoVenda"></td>
@@ -500,28 +616,37 @@ function storeRow(storeKey, row) {
     <td><button class="icon-btn" data-action="delete" title="Remover produto">✕</button></td>
   `;
 
-  tr.querySelectorAll("input, select").forEach(el => {
-    const evt = el.type === "checkbox" ? "change" : "input";
-    el.addEventListener(evt, () => {
-      const field = el.dataset.field;
-      if (field === "taxaME") {
-        row.taxaME = el.checked;
-      } else {
-        row[field] = el.value;
-      }
-      saveState();
-      updateRowCalcCells(tr, row);
-      if (activeTab === "resumo") { /* n/a */ }
-    });
-  });
+  bindRowInputs(tr, row);
+  bindRowDelete(tr, storeKey, row);
+  updateRowCalcCells(tr, row);
+  return tr;
+}
 
-  tr.querySelector('[data-action="delete"]').addEventListener("click", () => {
-    if (!confirm(`Remover o produto "${row.produto || "(sem nome)"}"?`)) return;
-    state.stores[storeKey] = state.stores[storeKey].filter(r => r.id !== row.id);
-    saveState();
-    renderContent();
-  });
+function storeRowProduto(storeKey, row) {
+  const tr = document.createElement("tr");
+  tr.dataset.rowId = row.id;
+  if (row.example) tr.classList.add("example-row");
 
+  tr.innerHTML = `
+    <td class="col-produto"><input type="text" value="${escapeAttr(row.produto)}" data-field="produto" placeholder="Nome do produto"></td>
+    <td><input type="date" value="${row.data || ""}" data-field="data"></td>
+    <td class="num"><input type="number" step="0.01" value="${row.precoVenda}" data-field="precoVenda"></td>
+    <td class="num"><input type="number" step="0.01" value="${row.recebido}" data-field="recebido"></td>
+    <td class="num calc-cell" data-out="taxaRS">—</td>
+    <td class="num calc-cell" data-out="taxaPct">—</td>
+    <td class="center"><input type="checkbox" data-field="taxaME" ${row.taxaME ? "checked" : ""} title="Aplicar 4% sobre o preço de venda (ME)"></td>
+    <td class="num calc-cell" data-out="custoTaxaME">—</td>
+    <td class="num"><input type="number" step="0.01" value="${row.insumos}" data-field="insumos" title="Custo dos insumos usados (ex: pendrive, memory card)"></td>
+    <td class="num"><input type="number" step="0.01" value="${row.embalagem}" data-field="embalagem"></td>
+    <td class="num"><input type="number" step="0.01" value="${row.gastoLevar}" data-field="gastoLevar"></td>
+    <td class="num calc-cell" data-out="custoTotal">—</td>
+    <td class="num calc-cell" data-out="lucro">—</td>
+    <td class="num" data-out="margem">—</td>
+    <td><button class="icon-btn" data-action="delete" title="Remover produto">✕</button></td>
+  `;
+
+  bindRowInputs(tr, row);
+  bindRowDelete(tr, storeKey, row);
   updateRowCalcCells(tr, row);
   return tr;
 }
@@ -657,8 +782,13 @@ function renderResumoPanel() {
 
 /* ---------- KPIs ---------- */
 
-// filtro de período da tela de KPIs — vive só na sessão, não é salvo no banco
-let kpiState = { year: "", month: "" };
+// filtro de período/loja da tela de KPIs — vive só na sessão, não é salvo no banco
+let kpiState = { store: "", year: "", month: "" };
+
+const KPI_CATEGORIES = [
+  { key: TIPO_3D, label: "Impressão 3D", color: "#FF6A1A" },
+  { key: TIPO_REVENDA, label: "Produtos", color: "#1B6B6B" },
+];
 
 const MONTH_NAMES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
@@ -676,7 +806,11 @@ function renderKpisPanel() {
   panel.className = "panel";
 
   // só entram nos KPIs pedidos reais (sem os produtos de exemplo) com data preenchida
-  const kpiRows = allRows().filter(r => !r.example && r.data);
+  const kpiRowsAll = allRows().filter(r => !r.example && r.data);
+
+  if (kpiState.store && !STORE_META.some(s => s.key === kpiState.store)) kpiState.store = "";
+  const kpiRows = kpiState.store ? kpiRowsAll.filter(r => r._storeKey === kpiState.store) : kpiRowsAll;
+
   const years = [...new Set(kpiRows.map(r => r.data.slice(0, 4)))].sort();
   const months = [...new Set(kpiRows.map(r => r.data.slice(0, 7)))].sort();
 
@@ -686,6 +820,9 @@ function renderKpisPanel() {
 
   const monthsInYear = months.filter(m => !kpiState.year || m.slice(0, 4) === kpiState.year);
 
+  const storeOptions = ['<option value="">Todas as lojas</option>']
+    .concat(STORE_META.map(s => `<option value="${s.key}" ${s.key === kpiState.store ? "selected" : ""}>${s.label}</option>`))
+    .join("");
   const yearOptions = ['<option value="">Todos os anos</option>']
     .concat(years.map(y => `<option value="${y}" ${y === kpiState.year ? "selected" : ""}>${y}</option>`))
     .join("");
@@ -700,6 +837,7 @@ function renderKpisPanel() {
         <p class="panel-sub">Baseado nos pedidos com a coluna "Data" preenchida em cada loja. Produtos de exemplo não entram na conta.</p>
       </div>
       <div class="panel-actions">
+        <select id="kpi-store">${storeOptions}</select>
         <select id="kpi-year">${yearOptions}</select>
         <select id="kpi-month">${monthOptions}</select>
       </div>
@@ -707,6 +845,10 @@ function renderKpisPanel() {
   `;
 
   const bindFilters = () => {
+    panel.querySelector("#kpi-store").addEventListener("change", e => {
+      kpiState.store = e.target.value;
+      renderContent();
+    });
     panel.querySelector("#kpi-year").addEventListener("change", e => {
       kpiState.year = e.target.value;
       kpiState.month = "";
@@ -755,7 +897,8 @@ function renderKpisPanel() {
   panel.appendChild(grid);
 
   panel.appendChild(renderRevenueChart(kpiRows, months));
-  panel.appendChild(renderKpiStoreBreakdown(filtered));
+  if (!kpiState.store) panel.appendChild(renderKpiStoreBreakdown(filtered));
+  panel.appendChild(renderKpiCategoryBreakdown(filtered));
   panel.appendChild(renderTopProducts(filtered));
 
   bindFilters();
@@ -868,6 +1011,59 @@ function renderKpiStoreBreakdown(rows) {
       <div class="pie-legend-item">
         <span class="nav-dot" style="background:${x.meta.color}"></span>
         <span class="pie-legend-label">${x.meta.label}</span>
+        <span class="pie-legend-value">${fmtCurrency(x.fat)} · ${pct.toFixed(1)}% · ${x.count} pedido(s)</span>
+      </div>
+    `;
+  }).join("");
+  pieWrap.appendChild(legend);
+
+  wrap.appendChild(pieWrap);
+  return wrap;
+}
+
+function renderKpiCategoryBreakdown(rows) {
+  const wrap = document.createElement("div");
+  wrap.className = "panel-block";
+  wrap.innerHTML = `<h2 class="block-title">Por categoria (período selecionado)</h2>`;
+
+  const byCat = KPI_CATEGORIES.map(cat => {
+    const catRows = rows.filter(r => r.tipo === cat.key);
+    let fat = 0;
+    catRows.forEach(r => { fat += n(r.precoVenda); });
+    return { cat, fat, count: catRows.length };
+  });
+  const total = byCat.reduce((sum, x) => sum + x.fat, 0);
+
+  const pieWrap = document.createElement("div");
+  pieWrap.className = "pie-wrap";
+
+  if (total <= 0) {
+    pieWrap.innerHTML = `<div class="empty-state">Sem faturamento nesse período.</div>`;
+    wrap.appendChild(pieWrap);
+    return wrap;
+  }
+
+  let acc = 0;
+  const slices = byCat.filter(x => x.fat > 0).map(x => {
+    const start = (acc / total) * 360;
+    acc += x.fat;
+    const end = (acc / total) * 360;
+    return `${x.cat.color} ${start.toFixed(2)}deg ${end.toFixed(2)}deg`;
+  }).join(", ");
+
+  const pie = document.createElement("div");
+  pie.className = "pie-chart";
+  pie.style.background = `conic-gradient(${slices})`;
+  pieWrap.appendChild(pie);
+
+  const legend = document.createElement("div");
+  legend.className = "pie-legend";
+  legend.innerHTML = byCat.map(x => {
+    const pct = total ? (x.fat / total) * 100 : 0;
+    return `
+      <div class="pie-legend-item">
+        <span class="nav-dot" style="background:${x.cat.color}"></span>
+        <span class="pie-legend-label">${x.cat.label}</span>
         <span class="pie-legend-value">${fmtCurrency(x.fat)} · ${pct.toFixed(1)}% · ${x.count} pedido(s)</span>
       </div>
     `;
@@ -1030,29 +1226,46 @@ function renderPerfilPanel() {
 
 function exportStoreCSV(storeKey) {
   const meta = STORE_META.find(s => s.key === storeKey);
-  const headers = ["Produto", "Data", "Tipo", "Impressora", "Filamento", "Venda (R$)", "Recebido (R$)",
-    "Taxa (R$)", "Taxa (%)", "ME 4%", "Taxa ME (R$)", "Peso (g)", "Tempo (h)", "Filamento (R$)", "Energia (R$)",
-    "Embalagem (R$)", "Gasto p/ Levar (R$)", "Custo Total (R$)", "Lucro (R$)", "Margem (%)"];
+  const is3D = storeViewType === "3d";
+  const rows = state.stores[storeKey].filter(r => is3D ? r.tipo !== TIPO_REVENDA : r.tipo === TIPO_REVENDA);
+
+  const headers = is3D
+    ? ["Produto", "Data", "Impressora", "Filamento", "Venda (R$)", "Recebido (R$)",
+      "Taxa (R$)", "Taxa (%)", "ME 4%", "Taxa ME (R$)", "Peso (g)", "Tempo (h)", "Filamento (R$)", "Energia (R$)",
+      "Embalagem (R$)", "Gasto p/ Levar (R$)", "Custo Total (R$)", "Lucro (R$)", "Margem (%)"]
+    : ["Produto", "Data", "Venda (R$)", "Recebido (R$)", "Taxa (R$)", "Taxa (%)", "ME 4%", "Taxa ME (R$)",
+      "Insumos (R$)", "Embalagem (R$)", "Gasto p/ Levar (R$)", "Custo Total (R$)", "Lucro (R$)", "Margem (%)"];
 
   const lines = [headers.join(";")];
-  state.stores[storeKey].forEach(row => {
+  rows.forEach(row => {
     const c = calcRow(row);
     const filName = state.filaments.find(f => f.id === row.filamentoId)?.nome || "";
-    const cells = [
-      row.produto, row.data || "", row.tipo, row.impressora, filName,
-      row.precoVenda, row.recebido,
-      c.taxaRS ?? "", c.taxaPct !== null ? (c.taxaPct * 100).toFixed(1) : "",
-      row.taxaME ? "Sim" : "Não", c.custoTaxaME.toFixed(2),
-      row.peso, row.tempo,
-      c.custoFilamento.toFixed(2), c.custoEnergia.toFixed(2),
-      row.embalagem, row.gastoLevar,
-      c.custoTotal.toFixed(2), c.lucro !== null ? c.lucro.toFixed(2) : "",
-      c.margem !== null ? (c.margem * 100).toFixed(1) : "",
-    ].map(v => String(v).replace(".", ",").replace(";", ","));
-    lines.push(cells.join(";"));
+    const cells = is3D
+      ? [
+        row.produto, row.data || "", row.impressora, filName,
+        row.precoVenda, row.recebido,
+        c.taxaRS ?? "", c.taxaPct !== null ? (c.taxaPct * 100).toFixed(1) : "",
+        row.taxaME ? "Sim" : "Não", c.custoTaxaME.toFixed(2),
+        row.peso, row.tempo,
+        c.custoFilamento.toFixed(2), c.custoEnergia.toFixed(2),
+        row.embalagem, row.gastoLevar,
+        c.custoTotal.toFixed(2), c.lucro !== null ? c.lucro.toFixed(2) : "",
+        c.margem !== null ? (c.margem * 100).toFixed(1) : "",
+      ]
+      : [
+        row.produto, row.data || "",
+        row.precoVenda, row.recebido,
+        c.taxaRS ?? "", c.taxaPct !== null ? (c.taxaPct * 100).toFixed(1) : "",
+        row.taxaME ? "Sim" : "Não", c.custoTaxaME.toFixed(2),
+        row.insumos, row.embalagem, row.gastoLevar,
+        c.custoTotal.toFixed(2), c.lucro !== null ? c.lucro.toFixed(2) : "",
+        c.margem !== null ? (c.margem * 100).toFixed(1) : "",
+      ];
+    lines.push(cells.map(v => String(v).replace(".", ",").replace(";", ",")).join(";"));
   });
 
-  downloadFile(`${meta.label.replace(/\s+/g, "_")}.csv`, "\uFEFF" + lines.join("\n"), "text/csv;charset=utf-8");
+  const sufixo = is3D ? "3D" : "Produtos";
+  downloadFile(`${meta.label.replace(/\s+/g, "_")}_${sufixo}.csv`, "\uFEFF" + lines.join("\n"), "text/csv;charset=utf-8");
 }
 
 function downloadFile(filename, content, mime) {
