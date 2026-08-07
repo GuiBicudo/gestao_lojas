@@ -28,6 +28,7 @@ function defaultState() {
     filamentoId,
     precoVenda: 45.0,
     recebido: 38.7,
+    taxaME: false,
     peso: 120,
     tempo: 3.5,
     embalagem: 2.0,
@@ -53,24 +54,113 @@ function defaultState() {
   };
 }
 
-let state = loadState();
+// state começa com um placeholder; só é usado de verdade depois que init() carrega
+// os dados reais do banco (IndexedDB) — ver seção "Banco de dados local" mais abaixo.
+let state = defaultState();
 
-function loadState() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultState();
-    const parsed = JSON.parse(raw);
-    // garante que todas as lojas existam mesmo se o storage for antigo
-    STORE_META.forEach(s => { if (!parsed.stores[s.key]) parsed.stores[s.key] = []; });
-    return parsed;
-  } catch (e) {
-    console.error("Falha ao carregar dados salvos, usando padrão.", e);
-    return defaultState();
-  }
+function normalizeState(parsed) {
+  STORE_META.forEach(s => { if (!parsed.stores[s.key]) parsed.stores[s.key] = []; });
+  return parsed;
 }
 
 function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  dbSaveState(state).catch(e => {
+    console.error("Falha ao salvar no banco de dados local.", e);
+    showToast("⚠ Não foi possível salvar. Exporte um backup para não perder dados.");
+  });
+}
+
+/* ===================== Banco de dados local (IndexedDB) =====================
+   Antes os dados ficavam só numa string no localStorage. Agora usamos o IndexedDB,
+   que é um banco de dados de verdade dentro do navegador: transacional, com muito
+   mais espaço de armazenamento e mais confiável para guardar tudo isso a longo prazo.
+   Continua 100% local (sem servidor) e continua funcionando no GitHub Pages.
+   Essa camada foi isolada de propósito: quando virarmos isso num app instalável,
+   é aqui (e só aqui) que trocaríamos IndexedDB por SQLite, sem mexer no resto do código. */
+
+const DB_NAME = "gestaoLojas3D";
+const DB_VERSION = 1;
+const DB_STORE = "state";
+const DB_KEY = "app";
+
+let dbPromise = null;
+
+function openDatabase() {
+  if (!("indexedDB" in window)) return Promise.reject(new Error("IndexedDB não suportado neste navegador."));
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      req.result.createObjectStore(DB_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return dbPromise;
+}
+
+function idbGet(db, key) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, "readonly");
+    const req = tx.objectStore(DB_STORE).get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbPut(db, key, value) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, "readwrite");
+    tx.objectStore(DB_STORE).put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// Migra dados antigos salvos em localStorage (versões anteriores do site) para o
+// IndexedDB, na primeira vez que o app abrir com o banco novo. Não apaga o backup
+// antigo do localStorage — ele só deixa de ser usado.
+function migrateFromLocalStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return normalizeState(JSON.parse(raw));
+  } catch (e) {
+    console.error("Não foi possível ler dados antigos do localStorage.", e);
+    return null;
+  }
+}
+
+async function dbSaveState(value) {
+  try {
+    const db = await openDatabase();
+    await idbPut(db, DB_KEY, value);
+  } catch (e) {
+    // navegador sem suporte a IndexedDB (ou bloqueado) — usa localStorage como plano B
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+  }
+}
+
+// Carrega o estado salvo: tenta o IndexedDB primeiro; se não houver nada lá,
+// tenta migrar do localStorage antigo; se não houver suporte a IndexedDB
+// (navegador muito antigo/restrito), cai de volta para o localStorage puro.
+async function dbLoadState() {
+  try {
+    const db = await openDatabase();
+    const saved = await idbGet(db, DB_KEY);
+    if (saved) return normalizeState(saved);
+
+    const migrated = migrateFromLocalStorage();
+    if (migrated) {
+      await idbPut(db, DB_KEY, migrated);
+      return migrated;
+    }
+    return defaultState();
+  } catch (e) {
+    console.error("IndexedDB indisponível, usando localStorage como alternativa.", e);
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? normalizeState(JSON.parse(raw)) : defaultState();
+  }
 }
 
 /* ===================== Utilitários numéricos ===================== */
@@ -116,12 +206,14 @@ function calcRow(row) {
   const custoEnergia = n(row.tempo) * (getPrinterPower(row.impressora) / 1000) * n(state.params.tarifa);
   const embalagem = n(row.embalagem);
   const gastoLevar = n(row.gastoLevar);
+  // taxa opcional de 4% (ME) sobre o preço de venda — usada nas lojas em que você vende como ME
+  const custoTaxaME = row.taxaME ? n(row.precoVenda) * 0.04 : 0;
 
-  const custoTotal = custoFilamento + custoEnergia + embalagem + gastoLevar;
+  const custoTotal = custoFilamento + custoEnergia + embalagem + gastoLevar + custoTaxaME;
   const lucro = recebido !== null ? recebido - custoTotal : null;
   const margem = lucro !== null && precoVenda ? lucro / precoVenda : null;
 
-  return { taxaRS, taxaPct, custoFilamento, custoEnergia, custoTotal, lucro, margem };
+  return { taxaRS, taxaPct, custoFilamento, custoEnergia, custoTaxaME, custoTotal, lucro, margem };
 }
 
 /* ===================== Navegação ===================== */
@@ -162,7 +254,7 @@ function navItem(key, label, icon, color) {
   const marker = color
     ? `<span class="nav-dot" style="background:${color}"></span>`
     : `<span style="width:16px;text-align:center;color:#8F98A1;">${icon}</span>`;
-  return `<button class="nav-item ${active}" data-tab="${key}">${marker}${label}</button>`;
+  return `<button class="nav-item ${active}" data-tab="${key}" title="${label}">${marker}<span class="nav-label">${label}</span></button>`;
 }
 
 /* ===================== Render: conteúdo principal ===================== */
@@ -328,7 +420,7 @@ function renderStorePanel(storeKey) {
 
   if (rows.length === 0) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="18"><div class="empty-state">Nenhum produto cadastrado ainda. Clique em "Novo produto".</div></td>`;
+    tr.innerHTML = `<td colspan="20"><div class="empty-state">Nenhum produto cadastrado ainda. Clique em "Novo produto".</div></td>`;
     tbody.appendChild(tr);
   } else {
     rows.forEach(row => tbody.appendChild(storeRow(storeKey, row)));
@@ -337,7 +429,7 @@ function renderStorePanel(storeKey) {
   node.querySelector('[data-action="add-row"]').addEventListener("click", () => {
     state.stores[storeKey].push({
       id: uid(), example: false, produto: "", tipo: "Impressão 3D", impressora: "",
-      filamentoId: "", precoVenda: "", recebido: "", peso: "", tempo: "", embalagem: "", gastoLevar: "",
+      filamentoId: "", precoVenda: "", recebido: "", taxaME: false, peso: "", tempo: "", embalagem: "", gastoLevar: "",
     });
     saveState();
     renderContent();
@@ -372,6 +464,8 @@ function storeRow(storeKey, row) {
     <td class="num"><input type="number" step="0.01" value="${row.recebido}" data-field="recebido"></td>
     <td class="num calc-cell" data-out="taxaRS">—</td>
     <td class="num calc-cell" data-out="taxaPct">—</td>
+    <td class="center"><input type="checkbox" data-field="taxaME" ${row.taxaME ? "checked" : ""} title="Aplicar 4% sobre o preço de venda (ME)"></td>
+    <td class="num calc-cell" data-out="custoTaxaME">—</td>
     <td class="num"><input type="number" step="0.1" value="${row.peso}" data-field="peso"></td>
     <td class="num"><input type="number" step="0.1" value="${row.tempo}" data-field="tempo"></td>
     <td class="num calc-cell" data-out="custoFilamento">—</td>
@@ -385,10 +479,14 @@ function storeRow(storeKey, row) {
   `;
 
   tr.querySelectorAll("input, select").forEach(el => {
-    el.addEventListener("input", () => {
+    const evt = el.type === "checkbox" ? "change" : "input";
+    el.addEventListener(evt, () => {
       const field = el.dataset.field;
-      const numericFields = ["precoVenda", "recebido", "peso", "tempo", "embalagem", "gastoLevar"];
-      row[field] = numericFields.includes(field) ? el.value : el.value;
+      if (field === "taxaME") {
+        row.taxaME = el.checked;
+      } else {
+        row[field] = el.value;
+      }
       saveState();
       updateRowCalcCells(tr, row);
       if (activeTab === "resumo") { /* n/a */ }
@@ -412,6 +510,7 @@ function updateRowCalcCells(tr, row) {
   setCalc(tr, "taxaPct", c.taxaPct === null ? "—" : fmtPercent(c.taxaPct));
   setCalc(tr, "custoFilamento", fmtCurrency(c.custoFilamento));
   setCalc(tr, "custoEnergia", fmtCurrency(c.custoEnergia));
+  setCalc(tr, "custoTaxaME", fmtCurrency(c.custoTaxaME));
   setCalc(tr, "custoTotal", fmtCurrency(c.custoTotal));
   setCalc(tr, "lucro", c.lucro === null ? "—" : fmtCurrency(c.lucro));
 
@@ -539,7 +638,7 @@ function renderResumoPanel() {
 function exportStoreCSV(storeKey) {
   const meta = STORE_META.find(s => s.key === storeKey);
   const headers = ["Produto", "Tipo", "Impressora", "Filamento", "Venda (R$)", "Recebido (R$)",
-    "Taxa (R$)", "Taxa (%)", "Peso (g)", "Tempo (h)", "Filamento (R$)", "Energia (R$)",
+    "Taxa (R$)", "Taxa (%)", "ME 4%", "Taxa ME (R$)", "Peso (g)", "Tempo (h)", "Filamento (R$)", "Energia (R$)",
     "Embalagem (R$)", "Gasto p/ Levar (R$)", "Custo Total (R$)", "Lucro (R$)", "Margem (%)"];
 
   const lines = [headers.join(";")];
@@ -550,6 +649,7 @@ function exportStoreCSV(storeKey) {
       row.produto, row.tipo, row.impressora, filName,
       row.precoVenda, row.recebido,
       c.taxaRS ?? "", c.taxaPct !== null ? (c.taxaPct * 100).toFixed(1) : "",
+      row.taxaME ? "Sim" : "Não", c.custoTaxaME.toFixed(2),
       row.peso, row.tempo,
       c.custoFilamento.toFixed(2), c.custoEnergia.toFixed(2),
       row.embalagem, row.gastoLevar,
@@ -627,7 +727,39 @@ function escapeAttr(str) {
   return escapeHtml(str);
 }
 
+/* ===================== Sidebar recolher/expandir ===================== */
+
+const SIDEBAR_COLLAPSE_KEY = "gestaoLojas3D_sidebarCollapsed";
+let sidebarCollapsed = localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "1";
+
+function applySidebarState() {
+  const sidebar = document.getElementById("sidebar");
+  const btn = document.getElementById("btn-toggle-sidebar");
+  sidebar.classList.toggle("collapsed", sidebarCollapsed);
+  if (btn) {
+    btn.textContent = sidebarCollapsed ? "›" : "‹";
+    btn.title = sidebarCollapsed ? "Expandir menu" : "Recolher menu";
+  }
+}
+
+document.getElementById("btn-toggle-sidebar").addEventListener("click", () => {
+  sidebarCollapsed = !sidebarCollapsed;
+  localStorage.setItem(SIDEBAR_COLLAPSE_KEY, sidebarCollapsed ? "1" : "0");
+  applySidebarState();
+});
+
 /* ===================== Init ===================== */
 
-renderNav();
-renderContent();
+async function init() {
+  try {
+    state = await dbLoadState();
+  } catch (e) {
+    console.error("Falha ao carregar dados salvos, usando padrão.", e);
+    state = defaultState();
+  }
+  renderNav();
+  renderContent();
+  applySidebarState();
+}
+
+init();

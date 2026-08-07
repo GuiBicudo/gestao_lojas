@@ -13,27 +13,28 @@
 
 <div class="app">
 
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
     <div class="brand">
       <span class="brand-mark">◇</span>
       <div class="brand-text">
         <strong>Gestão de Lojas</strong>
         <span>Impressão 3D &amp; Revenda</span>
       </div>
+      <button id="btn-toggle-sidebar" class="collapse-toggle" title="Recolher menu">‹</button>
     </div>
 
     <nav class="nav" id="nav"></nav>
 
     <div class="sidebar-footer">
-      <button id="btn-export" class="ghost-btn">Exportar backup</button>
-      <label class="ghost-btn" for="file-import">Importar backup</label>
+      <button id="btn-export" class="ghost-btn" title="Exportar backup"><span class="btn-icon">⭳</span><span class="btn-label">Exportar backup</span></button>
+      <label class="ghost-btn" for="file-import" title="Importar backup"><span class="btn-icon">⭱</span><span class="btn-label">Importar backup</span></label>
       <input type="file" id="file-import" accept="application/json" hidden>
       <p class="hint">Os dados ficam salvos neste navegador. Exporte um backup de vez em quando.</p>
     </div>
   </aside>
 
   <main class="content" id="content">
-    <!-- injetado via JS -->
+    <div class="empty-state">Carregando dados…</div>
   </main>
 
 </div>
@@ -62,6 +63,8 @@
             <th class="num">Recebido (R$)</th>
             <th class="num calc">Taxa (R$)</th>
             <th class="num calc">Taxa (%)</th>
+            <th class="center">ME 4%</th>
+            <th class="num calc">Taxa ME (R$)</th>
             <th class="num">Peso (g)</th>
             <th class="num">Tempo (h)</th>
             <th class="num calc">Filamento (R$)</th>

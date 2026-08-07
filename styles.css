@@ -54,6 +54,12 @@ html, body {
   position: sticky;
   top: 0;
   height: 100vh;
+  transition: width 0.18s ease;
+  overflow: hidden;
+}
+
+.sidebar.collapsed {
+  width: 72px;
 }
 
 .brand {
@@ -63,6 +69,29 @@ html, body {
   padding: 24px 20px 18px;
   border-bottom: 1px solid var(--sidebar-line);
 }
+
+.sidebar.collapsed .brand {
+  padding: 24px 12px 18px;
+}
+
+.collapse-toggle {
+  margin-left: auto;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  border: 1px solid var(--sidebar-line);
+  background: transparent;
+  color: var(--sidebar-ink);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+}
+.collapse-toggle:hover { background: #1D2329; }
+.sidebar.collapsed .collapse-toggle { margin-left: 0; }
 
 .brand-mark {
   font-size: 22px;
@@ -152,6 +181,33 @@ html, body {
   margin: 4px 2px 0;
 }
 
+/* ---------- Sidebar colapsada (só ícones) ---------- */
+
+.sidebar.collapsed .brand-text,
+.sidebar.collapsed .nav-group-label,
+.sidebar.collapsed .nav-label,
+.sidebar.collapsed .btn-label,
+.sidebar.collapsed .sidebar-footer .hint {
+  display: none;
+}
+
+.sidebar.collapsed .nav {
+  padding: 16px 10px;
+}
+
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 9px;
+}
+
+.sidebar.collapsed .sidebar-footer {
+  padding: 14px 10px 18px;
+}
+
+.sidebar.collapsed .ghost-btn {
+  padding: 8px;
+}
+
 /* ---------- Buttons ---------- */
 
 .primary-btn {
@@ -177,10 +233,14 @@ html, body {
   font-size: 12.5px;
   cursor: pointer;
   text-align: center;
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   font-family: var(--font-body);
 }
 .ghost-btn:hover { background: #1D2329; }
+.btn-icon { font-size: 14px; line-height: 1; }
 
 .content .ghost-btn {
   color: var(--ink);
@@ -206,6 +266,7 @@ html, body {
 
 .content {
   flex: 1;
+  min-width: 0; /* impede que a tabela larga empurre a página inteira e crie scroll horizontal no body */
   padding: 32px 36px 60px;
   max-width: 1400px;
 }
@@ -291,6 +352,15 @@ table.data-table th {
 
 table.data-table th.calc { color: var(--teal); }
 table.data-table th.num { text-align: right; }
+table.data-table th.center,
+table.data-table td.center { text-align: center; }
+
+table.data-table td.center input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
 
 table.data-table td {
   padding: 6px 8px;
@@ -475,8 +545,12 @@ td select { min-width: 108px; }
 
 @media (max-width: 880px) {
   .app { flex-direction: column; }
-  .sidebar { width: 100%; height: auto; position: relative; flex-direction: row; flex-wrap: wrap; }
+  .sidebar, .sidebar.collapsed { width: 100%; height: auto; position: relative; flex-direction: row; flex-wrap: wrap; }
   .brand { border-bottom: none; padding: 16px; width: 100%; }
+  .collapse-toggle { display: none; }
+  .sidebar.collapsed .brand-text { display: flex; }
+  .sidebar.collapsed .nav-label,
+  .sidebar.collapsed .btn-label { display: inline; }
   .nav { flex-direction: row; flex-wrap: wrap; padding: 8px 12px; }
   .sidebar-footer { width: 100%; flex-direction: row; flex-wrap: wrap; }
   .sidebar-footer .hint { display: none; }
