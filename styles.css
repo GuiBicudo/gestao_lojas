@@ -468,6 +468,7 @@ table.data-table input:focus, table.data-table select:focus {
 td.col-produto input { min-width: 170px; font-weight: 500; }
 td select { min-width: 108px; }
 input[data-field="numeroPedido"] { min-width: 160px; }
+select[data-field="embalagemId"] { width: auto; min-width: 190px; }
 input.date-input { min-width: 96px; font-family: var(--font-mono); text-align: center; }
 
 .margin-badge {

@@ -27,6 +27,9 @@ const DEFEITO_SUBTIPOS = [
 // (o usuário pode editar esse valor livremente, caso a caso)
 const DEFAULT_VALOR_DEVOLUCAO = 15.0;
 
+// custo fixo de etiqueta + QR code, cobrado em todo produto de todas as lojas
+const CUSTO_ETIQUETA = 0.10;
+
 /* ===================== Estado ===================== */
 
 function uid() {
@@ -108,6 +111,9 @@ function defaultState() {
       { id: uid(), example: true, numeroPedido: "SHP-100311", categoria: "arrependimento", data: "2026-06-25" },
       { id: uid(), example: true, numeroPedido: "ML-582910", categoria: "defeito", subtipoDefeito: "danificado", valorDevolucao: 15.0, data: "2026-07-15" },
     ],
+    ads: [
+      { id: uid(), example: true, storeKey: "shopee", valor: 35.0, data: "2026-06-10" },
+    ],
   };
 }
 
@@ -123,7 +129,19 @@ function normalizeState(parsed) {
   if (!parsed.pricing.produtos) parsed.pricing.produtos = [];
   if (!parsed.devolucoes) parsed.devolucoes = [];
   if (!parsed.packagings) parsed.packagings = [];
+  if (!parsed.ads) parsed.ads = [];
   return parsed;
+}
+
+// soma o que foi gasto em ADS, com filtros opcionais de loja/ano/mês
+// (usado no Resumo e nos KPIs para que o gasto com anúncios conte no custo/lucro da loja)
+function adsGastoFiltered({ store, year, month } = {}) {
+  return state.ads
+    .filter(a => a.data)
+    .filter(a => !store || a.storeKey === store)
+    .filter(a => !year || a.data.slice(0, 4) === year)
+    .filter(a => !month || a.data.slice(0, 7) === month)
+    .reduce((s, a) => s + n(a.valor), 0);
 }
 
 // procura, em todas as lojas (3D e Produtos), o pedido com esse número
@@ -154,10 +172,10 @@ function calcDevolucao(dev) {
 
   let custoTotal = null;
   if (dev.categoria === "defeito") {
-    if (dev.subtipoDefeito === "danificado") custoTotal = embalagem + gastoLevar + n(dev.valorDevolucao);
+    if (dev.subtipoDefeito === "danificado") custoTotal = embalagem + gastoLevar + CUSTO_ETIQUETA + n(dev.valorDevolucao);
     else if (dev.subtipoDefeito === "pago_plataforma") custoTotal = 0;
   } else if (dev.categoria === "arrependimento" || dev.categoria === "nao_encontrado") {
-    custoTotal = embalagem + gastoLevar;
+    custoTotal = embalagem + gastoLevar + CUSTO_ETIQUETA;
   }
 
   return { match, custoTotal };
@@ -384,35 +402,37 @@ function calcRow(row) {
   const insumos = n(row.insumos); // custo de insumos dos produtos de revenda (ex: pendrive, memory card)
   // taxa opcional de 4% (ME) sobre o preço de venda — usada nas lojas em que você vende como ME
   const custoTaxaME = row.taxaME ? n(row.precoVenda) * 0.04 : 0;
+  // custo fixo de etiqueta + QR code, cobrado em todo produto
+  const custoEtiqueta = CUSTO_ETIQUETA;
 
-  const custoTotal = custoFilamento + custoEnergia + embalagem + gastoLevar + insumos + custoTaxaME;
+  const custoTotal = custoFilamento + custoEnergia + embalagem + gastoLevar + custoEtiqueta + insumos + custoTaxaME;
 
   // se esse pedido está registrado na aba Devoluções, o lucro final muda:
-  // - defeito de fabricação: você não recebe nada e perde embalagem + gasto p/ levar,
-  //   mais o valor de devolução informado no cadastro (campo editável)
+  // - defeito de fabricação: você não recebe nada e perde embalagem + gasto p/ levar + etiqueta,
+  //   mais o valor de devolução informado no cadastro
   // - danificado: pago pela plataforma: a loja reembolsa o valor total do produto — recebe
   //   normalmente, sem custo extra de devolução
   // - defeito sem sub-tipo escolhido ainda: mantém o cálculo normal até você completar o cadastro
   // - arrependimento / não encontrou o cliente: você não recebe nada pela venda — só perde
-  //   o que já gastou com embalagem e frete (o produto volta inteiro e pode ser revendido)
+  //   o que já gastou com embalagem, frete e etiqueta (o produto volta inteiro e pode ser revendido)
   const devolucao = row.numeroPedido ? findDevolucaoByOrderNumber(row.numeroPedido) : null;
 
   let lucro, margem;
   if (devolucao && devolucao.categoria === "defeito" && devolucao.subtipoDefeito === "danificado") {
-    lucro = -(embalagem + gastoLevar) - n(devolucao.valorDevolucao);
+    lucro = -(embalagem + gastoLevar + custoEtiqueta) - n(devolucao.valorDevolucao);
     margem = precoVenda ? lucro / precoVenda : null;
   } else if (devolucao && devolucao.categoria === "defeito" && devolucao.subtipoDefeito === "pago_plataforma") {
     lucro = recebido !== null ? recebido - custoTotal : null;
     margem = lucro !== null && precoVenda ? lucro / precoVenda : null;
   } else if (devolucao && (devolucao.categoria === "arrependimento" || devolucao.categoria === "nao_encontrado")) {
-    lucro = -(embalagem + gastoLevar);
+    lucro = -(embalagem + gastoLevar + custoEtiqueta);
     margem = precoVenda ? lucro / precoVenda : null;
   } else {
     lucro = recebido !== null ? recebido - custoTotal : null;
     margem = lucro !== null && precoVenda ? lucro / precoVenda : null;
   }
 
-  return { taxaRS, taxaPct, custoFilamento, custoEnergia, custoEmbalagem: embalagem, custoTaxaME, custoTotal, lucro, margem, devolucao };
+  return { taxaRS, taxaPct, custoFilamento, custoEnergia, custoEmbalagem: embalagem, custoEtiqueta, custoTaxaME, custoTotal, lucro, margem, devolucao };
 }
 
 // Calcula o preço de venda sugerido a partir dos custos + margem desejada (%).
@@ -467,6 +487,9 @@ function renderNav() {
   items.push(navGroupLabel("Lojas"));
   STORE_META.forEach(s => items.push(navItem(s.key, s.label, null, s.color)));
 
+  items.push(navGroupLabel("Marketing"));
+  items.push(navItem("ads", "ADS", "◎"));
+
   items.push(navGroupLabel("Pós-venda"));
   items.push(navItem("devolucoes", "Devoluções", "↺"));
 
@@ -510,6 +533,7 @@ function renderContent() {
   else if (activeTab === "embalagens") content.appendChild(renderPackagingsPanel());
   else if (activeTab === "parametros") content.appendChild(renderParamsPanel());
   else if (activeTab === "precificacao") content.appendChild(renderPricingPanel());
+  else if (activeTab === "ads") content.appendChild(renderAdsPanel());
   else if (activeTab === "devolucoes") content.appendChild(renderDevolucoesPanel());
   else if (activeTab === "resumo") content.appendChild(renderResumoPanel());
   else if (activeTab === "kpis") content.appendChild(renderKpisPanel());
@@ -763,6 +787,7 @@ function head3D() {
     <th class="num calc">Energia (R$)</th>
     <th class="num calc">Embalagem (R$)</th>
     <th class="num">Gasto p/ Levar (R$)</th>
+    <th class="num calc">Etiqueta (R$)</th>
     <th class="num calc">Custo Total (R$)</th>
     <th class="num calc">Lucro (R$)</th>
     <th class="num calc">Margem</th>
@@ -785,6 +810,7 @@ function headProdutos() {
     <th class="num">Insumos (R$)</th>
     <th class="num calc">Embalagem (R$)</th>
     <th class="num">Gasto p/ Levar (R$)</th>
+    <th class="num calc">Etiqueta (R$)</th>
     <th class="num calc">Custo Total (R$)</th>
     <th class="num calc">Lucro (R$)</th>
     <th class="num calc">Margem</th>
@@ -825,7 +851,7 @@ function renderStorePanel(storeKey) {
   const tbody = panel.querySelector("tbody");
   if (rows.length === 0) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="${is3D ? 22 : 17}"><div class="empty-state">Nenhum produto cadastrado ainda. Clique em "Novo produto".</div></td>`;
+    tr.innerHTML = `<td colspan="${is3D ? 23 : 18}"><div class="empty-state">Nenhum produto cadastrado ainda. Clique em "Novo produto".</div></td>`;
     tbody.appendChild(tr);
   } else {
     rows.forEach(row => tbody.appendChild(is3D ? storeRow3D(storeKey, row) : storeRowProduto(storeKey, row)));
@@ -921,6 +947,7 @@ function storeRow3D(storeKey, row) {
     <td class="num calc-cell" data-out="custoEnergia">—</td>
     <td class="num calc-cell" data-out="custoEmbalagem">—</td>
     <td class="num"><input type="number" step="0.01" value="${row.gastoLevar}" data-field="gastoLevar"></td>
+    <td class="num calc-cell" data-out="custoEtiqueta" title="Custo fixo de etiqueta + QR code">—</td>
     <td class="num calc-cell" data-out="custoTotal">—</td>
     <td class="num calc-cell" data-out="lucro">—</td>
     <td class="num" data-out="margem">—</td>
@@ -952,6 +979,7 @@ function storeRowProduto(storeKey, row) {
     <td class="num"><input type="number" step="0.01" value="${row.insumos}" data-field="insumos" title="Custo dos insumos usados (ex: pendrive, memory card)"></td>
     <td class="num calc-cell" data-out="custoEmbalagem">—</td>
     <td class="num"><input type="number" step="0.01" value="${row.gastoLevar}" data-field="gastoLevar"></td>
+    <td class="num calc-cell" data-out="custoEtiqueta" title="Custo fixo de etiqueta + QR code">—</td>
     <td class="num calc-cell" data-out="custoTotal">—</td>
     <td class="num calc-cell" data-out="lucro">—</td>
     <td class="num" data-out="margem">—</td>
@@ -971,6 +999,7 @@ function updateRowCalcCells(tr, row) {
   setCalc(tr, "custoFilamento", fmtCurrency(c.custoFilamento));
   setCalc(tr, "custoEnergia", fmtCurrency(c.custoEnergia));
   setCalc(tr, "custoEmbalagem", fmtCurrency(c.custoEmbalagem));
+  setCalc(tr, "custoEtiqueta", fmtCurrency(c.custoEtiqueta));
   setCalc(tr, "custoTaxaME", fmtCurrency(c.custoTaxaME));
   setCalc(tr, "custoTotal", fmtCurrency(c.custoTotal));
 
@@ -1241,6 +1270,112 @@ function updatePricingRowCalcCells(tr, row) {
   }
 }
 
+/* ---------- ADS ---------- */
+
+function renderAdsPanel() {
+  const panel = document.createElement("section");
+  panel.className = "panel";
+  const rows = state.ads;
+
+  panel.innerHTML = `
+    <header class="panel-header">
+      <div>
+        <h1 class="page-title">ADS</h1>
+        <p class="panel-sub">Registre quanto você pagou em anúncios em cada loja. Esse valor entra automaticamente no custo (e reduz o lucro) daquela loja no Resumo e nos KPIs.</p>
+      </div>
+      <div class="panel-actions">
+        <button class="primary-btn" data-action="add-row">+ Novo ADS</button>
+      </div>
+    </header>
+  `;
+
+  if (rows.length > 0) {
+    const grid = document.createElement("div");
+    grid.className = "summary-grid";
+    const totalGeral = rows.reduce((s, a) => s + n(a.valor), 0);
+    grid.innerHTML = [
+      kpiCard("Total em ADS", fmtCurrency(totalGeral), `${rows.length} registro(s)`),
+      ...STORE_META.map(meta => kpiCard(meta.label, fmtCurrency(adsGastoFiltered({ store: meta.key })), "gasto em ADS")),
+    ].join("");
+    panel.appendChild(grid);
+  }
+
+  const tableWrap = document.createElement("div");
+  tableWrap.className = "table-wrap";
+  const table = document.createElement("table");
+  table.className = "data-table";
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Loja</th>
+        <th class="num">Valor Pago (R$)</th>
+        <th>Data</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  `;
+  const tbody = table.querySelector("tbody");
+
+  if (rows.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="4"><div class="empty-state">Nenhum registro de ADS ainda. Clique em "Novo ADS".</div></td>`;
+    tbody.appendChild(tr);
+  } else {
+    rows.forEach(a => tbody.appendChild(adsRow(a)));
+  }
+
+  tableWrap.appendChild(table);
+  panel.appendChild(tableWrap);
+
+  panel.querySelector('[data-action="add-row"]').addEventListener("click", () => {
+    state.ads.push({ id: uid(), example: false, storeKey: "", valor: "", data: new Date().toISOString().slice(0, 10) });
+    saveState();
+    renderContent();
+  });
+
+  return panel;
+}
+
+function adsRow(a) {
+  const tr = document.createElement("tr");
+  tr.dataset.rowId = a.id;
+  if (a.example) tr.classList.add("example-row");
+
+  const storeOptions = ['<option value="">— selecione a loja —</option>']
+    .concat(STORE_META.map(meta => `<option value="${meta.key}" ${meta.key === a.storeKey ? "selected" : ""}>${meta.label}</option>`))
+    .join("");
+
+  tr.innerHTML = `
+    <td><select data-field="storeKey">${storeOptions}</select></td>
+    <td class="num"><input type="number" step="0.01" value="${a.valor}" data-field="valor"></td>
+    <td><input type="text" inputmode="numeric" class="date-input" maxlength="10" value="${formatDateBR(a.data)}" data-field="data" placeholder="dd/mm/aaaa"></td>
+    <td><button class="icon-btn" data-action="delete" title="Remover">✕</button></td>
+  `;
+
+  const dataEl = tr.querySelector('[data-field="data"]');
+  attachDateMask(dataEl, iso => {
+    a.data = iso;
+    saveState();
+  });
+
+  tr.querySelectorAll('[data-field]:not([data-field="data"])').forEach(el => {
+    el.addEventListener("input", () => {
+      a[el.dataset.field] = el.value;
+      saveState();
+    });
+  });
+
+  tr.querySelector('[data-action="delete"]').addEventListener("click", () => {
+    if (!confirm("Remover este registro de ADS?")) return;
+    state.ads = state.ads.filter(x => x.id !== a.id);
+    saveState();
+    renderContent();
+  });
+
+  return tr;
+}
+
 /* ---------- Devoluções ---------- */
 
 function renderDevolucoesPanel() {
@@ -1252,7 +1387,7 @@ function renderDevolucoesPanel() {
     <header class="panel-header">
       <div>
         <h1 class="page-title">Devoluções</h1>
-        <p class="panel-sub">Selecione o produto pelo pedido (igual ao seletor de filamentos). O Lucro desse pedido nas telas de Lojas, Resumo e KPIs é atualizado sozinho: em "Danificado: Pago pela plataforma" você recebe o valor completo, normalmente, sem custo extra; em "Defeito de fabricação" você não recebe nada e perde embalagem + gasto p/ levar + o valor de devolução que você informar; em arrependimento ou pedido não encontrado, você não recebe nada e só perde embalagem + gasto p/ levar.</p>
+        <p class="panel-sub">Selecione o produto pelo pedido (igual ao seletor de filamentos). O Lucro desse pedido nas telas de Lojas, Resumo e KPIs é atualizado sozinho: em "Danificado: Pago pela plataforma" você recebe o valor completo, normalmente, sem custo extra; em "Defeito de fabricação" você não recebe nada e perde embalagem + gasto p/ levar + etiqueta (R$ 0,10) + o valor de devolução que você informar; em arrependimento ou pedido não encontrado, você não recebe nada e só perde embalagem + gasto p/ levar + etiqueta.</p>
       </div>
       <div class="panel-actions">
         <button class="primary-btn" data-action="add-row">+ Nova devolução</button>
@@ -1465,8 +1600,11 @@ function renderResumoPanel() {
       custoTotal += c.custoTotal;
       lucro += c.lucro !== null ? c.lucro : 0;
     });
+    // o que foi pago em ADS pra essa loja também conta como custo e reduz o lucro
+    const gastoAds = adsGastoFiltered({ store: meta.key });
+    lucro -= gastoAds;
     const margem = faturamento ? lucro / faturamento : null;
-    return { meta, faturamento, recebido, custoTotal, lucro, margem, count: rows.length };
+    return { meta, faturamento, recebido, custoTotal, gastoAds, lucro, margem, count: rows.length };
   });
 
   const grid = document.createElement("div");
@@ -1478,10 +1616,14 @@ function renderResumoPanel() {
     card.innerHTML = `
       <div class="label">${t.meta.label}</div>
       <div class="value">${fmtCurrency(t.lucro)}</div>
-      <div class="sub">lucro líquido · ${t.count} produto(s)</div>
+      <div class="sub">lucro líquido (já descontando ADS) · ${t.count} produto(s)</div>
     `;
     grid.appendChild(card);
   });
+  const gastoAdsGeral = totals.reduce((s, t) => s + t.gastoAds, 0);
+  const adsCard = document.createElement("div");
+  adsCard.innerHTML = kpiCard("Gasto Total em ADS", fmtCurrency(gastoAdsGeral), "todas as lojas · já descontado do lucro acima");
+  grid.appendChild(adsCard.firstElementChild);
   panel.appendChild(grid);
 
   const table = document.createElement("table");
@@ -1493,6 +1635,7 @@ function renderResumoPanel() {
         <th class="num">Faturamento (R$)</th>
         <th class="num">Recebido (R$)</th>
         <th class="num">Custo Total (R$)</th>
+        <th class="num">Gasto ADS (R$)</th>
         <th class="num">Lucro Total (R$)</th>
         <th class="num">Margem Média</th>
       </tr>
@@ -1500,15 +1643,16 @@ function renderResumoPanel() {
     <tbody></tbody>
   `;
   const tbody = table.querySelector("tbody");
-  let totFat = 0, totRec = 0, totCusto = 0, totLucro = 0;
+  let totFat = 0, totRec = 0, totCusto = 0, totAds = 0, totLucro = 0;
   totals.forEach(t => {
-    totFat += t.faturamento; totRec += t.recebido; totCusto += t.custoTotal; totLucro += t.lucro;
+    totFat += t.faturamento; totRec += t.recebido; totCusto += t.custoTotal; totAds += t.gastoAds; totLucro += t.lucro;
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${t.meta.label}</td>
       <td class="num">${fmtCurrency(t.faturamento)}</td>
       <td class="num">${fmtCurrency(t.recebido)}</td>
       <td class="num">${fmtCurrency(t.custoTotal)}</td>
+      <td class="num">${fmtCurrency(t.gastoAds)}</td>
       <td class="num">${fmtCurrency(t.lucro)}</td>
       <td class="num">${t.margem === null ? "—" : fmtPercent(t.margem)}</td>
     `;
@@ -1522,6 +1666,7 @@ function renderResumoPanel() {
     <td class="num">${fmtCurrency(totFat)}</td>
     <td class="num">${fmtCurrency(totRec)}</td>
     <td class="num">${fmtCurrency(totCusto)}</td>
+    <td class="num">${fmtCurrency(totAds)}</td>
     <td class="num">${fmtCurrency(totLucro)}</td>
     <td class="num">${totalMargem === null ? "—" : fmtPercent(totalMargem)}</td>
   `;
@@ -1676,6 +1821,11 @@ function renderKpisPanel() {
     lucro += c.lucro !== null ? c.lucro : 0;
     if (row.numeroPedido && findDevolucaoByOrderNumber(row.numeroPedido)) devolvidos++;
   });
+
+  // o que foi pago em ADS no mesmo período/loja filtrados também conta como custo e reduz o lucro
+  const gastoAds = adsGastoFiltered({ store: kpiState.store, year: kpiState.year, month: kpiState.month });
+  lucro -= gastoAds;
+
   const margem = faturamento ? lucro / faturamento : null;
   const ticket = pedidos ? faturamento / pedidos : null;
   const taxaDevolucao = pedidos ? devolvidos / pedidos : null;
@@ -1688,6 +1838,7 @@ function renderKpisPanel() {
     kpiCard("Faturamento", fmtCurrency(faturamento), `${pedidos} pedido(s)`),
     kpiCard("Lucro Líquido", fmtCurrency(lucro), margem !== null ? `margem ${fmtPercent(margem)}` : "—"),
     kpiCard("Custo Total", fmtCurrency(custoTotal), "filamento + energia + taxas + embalagem"),
+    kpiCard("Gasto ADS", fmtCurrency(gastoAds), "já descontado do lucro líquido"),
     kpiCard("Ticket Médio", ticket !== null ? fmtCurrency(ticket) : "—", "por pedido"),
     kpiCard("Devoluções", String(devolvidos), taxaDevolucao !== null ? `${fmtPercent(taxaDevolucao)} dos pedidos` : "sem pedidos"),
     kpiCard("Crescimento (12 meses)", crescimento.valor !== null ? fmtPercent(crescimento.valor) : "—", crescimento.detalhe),
@@ -2050,9 +2201,9 @@ function exportStoreCSV(storeKey) {
   const headers = is3D
     ? ["Produto", "Data", "Nº Pedido", "Impressora", "Filamento", "Embalagem", "Venda (R$)", "Recebido (R$)",
       "Taxa (R$)", "Taxa (%)", "ME 4%", "Taxa ME (R$)", "Peso (g)", "Tempo (h)", "Filamento (R$)", "Energia (R$)",
-      "Embalagem (R$)", "Gasto p/ Levar (R$)", "Custo Total (R$)", "Lucro (R$)", "Margem (%)"]
+      "Embalagem (R$)", "Gasto p/ Levar (R$)", "Etiqueta (R$)", "Custo Total (R$)", "Lucro (R$)", "Margem (%)"]
     : ["Produto", "Data", "Nº Pedido", "Embalagem", "Venda (R$)", "Recebido (R$)", "Taxa (R$)", "Taxa (%)", "ME 4%", "Taxa ME (R$)",
-      "Insumos (R$)", "Embalagem (R$)", "Gasto p/ Levar (R$)", "Custo Total (R$)", "Lucro (R$)", "Margem (%)"];
+      "Insumos (R$)", "Embalagem (R$)", "Gasto p/ Levar (R$)", "Etiqueta (R$)", "Custo Total (R$)", "Lucro (R$)", "Margem (%)"];
 
   const lines = [headers.join(";")];
   rows.forEach(row => {
@@ -2067,7 +2218,7 @@ function exportStoreCSV(storeKey) {
         row.taxaME ? "Sim" : "Não", c.custoTaxaME.toFixed(2),
         row.peso, row.tempo,
         c.custoFilamento.toFixed(2), c.custoEnergia.toFixed(2),
-        c.custoEmbalagem.toFixed(2), row.gastoLevar,
+        c.custoEmbalagem.toFixed(2), row.gastoLevar, c.custoEtiqueta.toFixed(2),
         c.custoTotal.toFixed(2), c.lucro !== null ? c.lucro.toFixed(2) : "",
         c.margem !== null ? (c.margem * 100).toFixed(1) : "",
       ]
@@ -2076,7 +2227,7 @@ function exportStoreCSV(storeKey) {
         row.precoVenda, row.recebido,
         c.taxaRS ?? "", c.taxaPct !== null ? (c.taxaPct * 100).toFixed(1) : "",
         row.taxaME ? "Sim" : "Não", c.custoTaxaME.toFixed(2),
-        row.insumos, c.custoEmbalagem.toFixed(2), row.gastoLevar,
+        row.insumos, c.custoEmbalagem.toFixed(2), row.gastoLevar, c.custoEtiqueta.toFixed(2),
         c.custoTotal.toFixed(2), c.lucro !== null ? c.lucro.toFixed(2) : "",
         c.margem !== null ? (c.margem * 100).toFixed(1) : "",
       ];
