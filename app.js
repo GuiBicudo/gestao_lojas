@@ -12,6 +12,19 @@ const PRINTERS = ["A1", "A1 mini"];
 const TIPO_3D = "Impressão 3D";
 const TIPO_REVENDA = "Revenda";
 
+const DEVOLUCAO_CATEGORIAS = [
+  { key: "defeito", label: "Defeito" },
+  { key: "arrependimento", label: "Arrependimento" },
+  { key: "nao_encontrado", label: "Não encontrou o cliente" },
+];
+// dentro de "Defeito" precisa dizer se o produto voltou danificado (perda total dos custos)
+// ou se a plataforma pagou o valor do produto (só entra a taxa de R$ 15)
+const DEFEITO_SUBTIPOS = [
+  { key: "danificado", label: "Danificado" },
+  { key: "pago_plataforma", label: "Pago pela plataforma" },
+];
+const CUSTO_EXTRA_DEFEITO = 15.0;
+
 /* ===================== Estado ===================== */
 
 function uid() {
@@ -77,13 +90,17 @@ function defaultState() {
       threeD: [{
         id: uid(), example: true, produto: "(exemplo) Chaveiro Personalizado",
         impressora: "A1 mini", filamentoId: fil2, peso: 15, tempo: 0.8,
-        embalagem: 0.5, gastoLevar: 0.3, taxaME: false, margemDesejada: 45,
+        embalagem: 0.5, gastoLevar: 0.3, taxaME: false, taxaPlataforma: 40, margemDesejada: 45,
       }],
       produtos: [{
         id: uid(), example: true, produto: "(exemplo) Capinha de Celular",
-        insumos: 8.0, embalagem: 1.0, gastoLevar: 0.5, taxaME: false, margemDesejada: 50,
+        insumos: 8.0, embalagem: 1.0, gastoLevar: 0.5, taxaME: false, taxaPlataforma: 40, margemDesejada: 50,
       }],
     },
+    devolucoes: [
+      { id: uid(), example: true, numeroPedido: "SHP-100311", categoria: "arrependimento", data: "2026-06-25" },
+      { id: uid(), example: true, numeroPedido: "ML-582910", categoria: "defeito", subtipoDefeito: "danificado", data: "2026-07-15" },
+    ],
   };
 }
 
@@ -97,7 +114,53 @@ function normalizeState(parsed) {
   if (!parsed.pricing) parsed.pricing = { threeD: [], produtos: [] };
   if (!parsed.pricing.threeD) parsed.pricing.threeD = [];
   if (!parsed.pricing.produtos) parsed.pricing.produtos = [];
+  if (!parsed.devolucoes) parsed.devolucoes = [];
   return parsed;
+}
+
+// procura, em todas as lojas (3D e Produtos), o pedido com esse número
+function findProductByOrderNumber(numeroPedido) {
+  const needle = String(numeroPedido || "").trim().toLowerCase();
+  if (!needle) return null;
+  for (const meta of STORE_META) {
+    const found = state.stores[meta.key].find(r => (r.numeroPedido || "").trim().toLowerCase() === needle);
+    if (found) return { row: found, storeKey: meta.key, storeLabel: meta.label, storeColor: meta.color };
+  }
+  return null;
+}
+
+// custo (impacto financeiro) de uma devolução:
+// - defeito + danificado: perde tudo que foi gasto no produto (custo total) + R$ 15 de taxa
+// - defeito + pago pela plataforma: a loja reembolsa o valor do produto, só entra a taxa de R$ 15
+// - defeito sem sub-tipo escolhido ainda: custo indefinido (pede pra completar o cadastro)
+// - arrependimento / não encontrou o cliente: só perde embalagem + gasto p/ levar (o produto
+//   volta inteiro e pode ser revendido, então o custo de produção não conta como perda)
+function calcDevolucao(dev) {
+  const match = findProductByOrderNumber(dev.numeroPedido);
+  if (!match) return { match: null, custoTotal: null };
+
+  const row = match.row;
+  const rowCalc = calcRow(row); // custoTotal aqui é sempre o custo "bruto", sem a lógica de devolução
+  const embalagem = n(row.embalagem);
+  const gastoLevar = n(row.gastoLevar);
+
+  let custoTotal = null;
+  if (dev.categoria === "defeito") {
+    if (dev.subtipoDefeito === "danificado") custoTotal = rowCalc.custoTotal + CUSTO_EXTRA_DEFEITO;
+    else if (dev.subtipoDefeito === "pago_plataforma") custoTotal = CUSTO_EXTRA_DEFEITO;
+  } else if (dev.categoria === "arrependimento" || dev.categoria === "nao_encontrado") {
+    custoTotal = embalagem + gastoLevar;
+  }
+
+  return { match, custoTotal };
+}
+
+// caminho inverso: dado um número de pedido, existe alguma devolução registrada pra ele?
+// usado dentro de calcRow() para que o Lucro do produto nas Lojas/Resumo/KPIs reflita a devolução
+function findDevolucaoByOrderNumber(numeroPedido) {
+  const needle = String(numeroPedido || "").trim().toLowerCase();
+  if (!needle) return null;
+  return state.devolucoes.find(d => String(d.numeroPedido || "").trim().toLowerCase() === needle) || null;
 }
 
 // junta os produtos de todas as lojas num só array, marcando de qual loja cada um veio
@@ -257,16 +320,40 @@ function calcRow(row) {
   const custoTaxaME = row.taxaME ? n(row.precoVenda) * 0.04 : 0;
 
   const custoTotal = custoFilamento + custoEnergia + embalagem + gastoLevar + insumos + custoTaxaME;
-  const lucro = recebido !== null ? recebido - custoTotal : null;
-  const margem = lucro !== null && precoVenda ? lucro / precoVenda : null;
 
-  return { taxaRS, taxaPct, custoFilamento, custoEnergia, custoTaxaME, custoTotal, lucro, margem };
+  // se esse pedido está registrado na aba Devoluções, o lucro final muda:
+  // - defeito + danificado: o produto voltou estragado, você não recebe nada e perde tudo
+  //   que gastou nele (custo total), mais a taxa de devolução de R$ 15
+  // - defeito + pago pela plataforma: a loja reembolsa o valor total do produto (você recebe
+  //   normalmente), só entra a taxa extra de R$ 15
+  // - defeito sem sub-tipo escolhido ainda: mantém o cálculo normal até você completar o cadastro
+  // - arrependimento / não encontrou o cliente: você não recebe nada pela venda — só perde
+  //   o que já gastou com embalagem e frete (o produto volta inteiro e pode ser revendido)
+  const devolucao = row.numeroPedido ? findDevolucaoByOrderNumber(row.numeroPedido) : null;
+
+  let lucro, margem;
+  if (devolucao && devolucao.categoria === "defeito" && devolucao.subtipoDefeito === "danificado") {
+    lucro = -custoTotal - CUSTO_EXTRA_DEFEITO;
+    margem = precoVenda ? lucro / precoVenda : null;
+  } else if (devolucao && devolucao.categoria === "defeito" && devolucao.subtipoDefeito === "pago_plataforma") {
+    lucro = recebido !== null ? recebido - custoTotal - CUSTO_EXTRA_DEFEITO : null;
+    margem = lucro !== null && precoVenda ? lucro / precoVenda : null;
+  } else if (devolucao && (devolucao.categoria === "arrependimento" || devolucao.categoria === "nao_encontrado")) {
+    lucro = -(embalagem + gastoLevar);
+    margem = precoVenda ? lucro / precoVenda : null;
+  } else {
+    lucro = recebido !== null ? recebido - custoTotal : null;
+    margem = lucro !== null && precoVenda ? lucro / precoVenda : null;
+  }
+
+  return { taxaRS, taxaPct, custoFilamento, custoEnergia, custoTaxaME, custoTotal, lucro, margem, devolucao };
 }
 
 // Calcula o preço de venda sugerido a partir dos custos + margem desejada (%).
 // Parte da mesma definição de margem usada no resto do site (lucro / preço de venda),
-// já considerando a taxa ME de 4% (se marcada) quando ela existir sobre o preço final:
-//   precoVenda = custoBase / (1 - taxaME% - margem%)
+// considerando também a taxa média cobrada pela plataforma (ex: 40%) e a taxa ME de 4%
+// (se marcada), as duas incidindo sobre o preço final:
+//   precoVenda = custoBase / (1 - taxaPlataforma% - taxaME% - margem%)
 function calcPricing(row) {
   const custoFilamento = n(row.peso) / 1000 * getFilamentPrice(row.filamentoId);
   const custoEnergia = n(row.tempo) * (getPrinterPower(row.impressora) / 1000) * n(state.params.tarifa);
@@ -277,16 +364,24 @@ function calcPricing(row) {
 
   const margem = n(row.margemDesejada) / 100;
   const taxaMEFrac = row.taxaME ? 0.04 : 0;
-  const denom = 1 - taxaMEFrac - margem;
+  const taxaPlataformaFrac = n(row.taxaPlataforma) / 100;
+  const denom = 1 - taxaPlataformaFrac - taxaMEFrac - margem;
 
-  let precoSugerido = null;
-  if (denom > 0) precoSugerido = custoBase / denom;
+  let precoSugerido = null, taxaPlataformaRS = null, recebidoEstimado = null, custoTaxaME = 0, custoTotal = custoBase, lucro = null;
+  if (denom > 0) {
+    precoSugerido = custoBase / denom;
+    taxaPlataformaRS = precoSugerido * taxaPlataformaFrac;
+    custoTaxaME = precoSugerido * taxaMEFrac;
+    custoTotal = custoBase + custoTaxaME;
+    recebidoEstimado = precoSugerido - taxaPlataformaRS;
+    lucro = recebidoEstimado - custoTotal;
+  }
 
-  const custoTaxaME = precoSugerido !== null ? precoSugerido * taxaMEFrac : 0;
-  const custoTotal = custoBase + custoTaxaME;
-  const lucro = precoSugerido !== null ? precoSugerido - custoTotal : null;
-
-  return { custoFilamento, custoEnergia, custoBase, custoTaxaME, custoTotal, precoSugerido, lucro, margemInvalida: denom <= 0 };
+  return {
+    custoFilamento, custoEnergia, custoBase, custoTaxaME, custoTotal,
+    taxaPlataformaRS, recebidoEstimado, precoSugerido, lucro,
+    margemInvalida: denom <= 0,
+  };
 }
 
 /* ===================== Navegação ===================== */
@@ -304,6 +399,9 @@ function renderNav() {
 
   items.push(navGroupLabel("Lojas"));
   STORE_META.forEach(s => items.push(navItem(s.key, s.label, null, s.color)));
+
+  items.push(navGroupLabel("Pós-venda"));
+  items.push(navItem("devolucoes", "Devoluções", "↺"));
 
   items.push(navGroupLabel("Visão Geral"));
   items.push(navItem("resumo", "Resumo", "▤"));
@@ -344,6 +442,7 @@ function renderContent() {
   if (activeTab === "filamentos") content.appendChild(renderFilamentsPanel());
   else if (activeTab === "parametros") content.appendChild(renderParamsPanel());
   else if (activeTab === "precificacao") content.appendChild(renderPricingPanel());
+  else if (activeTab === "devolucoes") content.appendChild(renderDevolucoesPanel());
   else if (activeTab === "resumo") content.appendChild(renderResumoPanel());
   else if (activeTab === "kpis") content.appendChild(renderKpisPanel());
   else if (activeTab === "perfil") content.appendChild(renderPerfilPanel());
@@ -707,7 +806,22 @@ function updateRowCalcCells(tr, row) {
   setCalc(tr, "custoEnergia", fmtCurrency(c.custoEnergia));
   setCalc(tr, "custoTaxaME", fmtCurrency(c.custoTaxaME));
   setCalc(tr, "custoTotal", fmtCurrency(c.custoTotal));
-  setCalc(tr, "lucro", c.lucro === null ? "—" : fmtCurrency(c.lucro));
+
+  const lucroCell = tr.querySelector('[data-out="lucro"]');
+  if (lucroCell) {
+    if (c.lucro === null) {
+      lucroCell.textContent = "—";
+    } else if (c.devolucao) {
+      let catLabel = DEVOLUCAO_CATEGORIAS.find(x => x.key === c.devolucao.categoria)?.label || "Devolução";
+      if (c.devolucao.categoria === "defeito") {
+        const subLabel = DEFEITO_SUBTIPOS.find(x => x.key === c.devolucao.subtipoDefeito)?.label;
+        catLabel = subLabel ? `Defeito — ${subLabel}` : "Defeito — tipo pendente";
+      }
+      lucroCell.innerHTML = `${fmtCurrency(c.lucro)} <span class="devolucao-tag" title="Pedido em devolução: ${catLabel}">↺</span>`;
+    } else {
+      lucroCell.textContent = fmtCurrency(c.lucro);
+    }
+  }
 
   const margemCell = tr.querySelector('[data-out="margem"]');
   if (c.margem === null) {
@@ -758,9 +872,12 @@ function headPricing3D() {
     <th class="num">Embalagem (R$)</th>
     <th class="num">Gasto p/ Levar (R$)</th>
     <th class="center">ME 4%</th>
+    <th class="num">Taxa Plataforma (%)</th>
     <th class="num">Margem Desejada (%)</th>
     <th class="num calc">Custo Total (R$)</th>
+    <th class="num calc">Taxa Plataforma (R$)</th>
     <th class="num calc">Preço Sugerido (R$)</th>
+    <th class="num calc">Recebido Estimado (R$)</th>
     <th class="num calc">Lucro Estimado (R$)</th>
     <th></th>
   `;
@@ -773,9 +890,12 @@ function headPricingProdutos() {
     <th class="num">Embalagem (R$)</th>
     <th class="num">Gasto p/ Levar (R$)</th>
     <th class="center">ME 4%</th>
+    <th class="num">Taxa Plataforma (%)</th>
     <th class="num">Margem Desejada (%)</th>
     <th class="num calc">Custo Total (R$)</th>
+    <th class="num calc">Taxa Plataforma (R$)</th>
     <th class="num calc">Preço Sugerido (R$)</th>
+    <th class="num calc">Recebido Estimado (R$)</th>
     <th class="num calc">Lucro Estimado (R$)</th>
     <th></th>
   `;
@@ -792,7 +912,7 @@ function renderPricingPanel() {
     <header class="panel-header">
       <div>
         <h1 class="page-title">Precificação</h1>
-        <p class="panel-sub">Informe os custos e a margem que você quer ganhar — o preço de venda sugerido é calculado sozinho (considerando a taxa ME de 4%, se marcada).</p>
+        <p class="panel-sub">Informe os custos, a taxa média da plataforma e a margem que você quer ganhar — o preço de venda sugerido é calculado sozinho (considerando também a taxa ME de 4%, se marcada).</p>
       </div>
       <div class="panel-actions">
         <button class="primary-btn" data-action="add-row">+ Novo item${is3D ? " 3D" : ""}</button>
@@ -813,14 +933,14 @@ function renderPricingPanel() {
   const tbody = panel.querySelector("tbody");
   if (rows.length === 0) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="${is3D ? 15 : 10}"><div class="empty-state">Nenhum item de precificação ainda. Clique em "Novo item".</div></td>`;
+    tr.innerHTML = `<td colspan="${is3D ? 18 : 13}"><div class="empty-state">Nenhum item de precificação ainda. Clique em "Novo item".</div></td>`;
     tbody.appendChild(tr);
   } else {
     rows.forEach(row => tbody.appendChild(is3D ? pricingRow3D(row) : pricingRowProduto(row)));
   }
 
   panel.querySelector('[data-action="add-row"]').addEventListener("click", () => {
-    const base = { id: uid(), example: false, produto: "", embalagem: "", gastoLevar: "", taxaME: false, margemDesejada: "" };
+    const base = { id: uid(), example: false, produto: "", embalagem: "", gastoLevar: "", taxaME: false, taxaPlataforma: 40, margemDesejada: "" };
     const newRow = is3D
       ? Object.assign(base, { impressora: "", filamentoId: "", peso: "", tempo: "" })
       : Object.assign(base, { insumos: "" });
@@ -888,9 +1008,12 @@ function pricingRow3D(row) {
     <td class="num"><input type="number" step="0.01" value="${row.embalagem}" data-field="embalagem"></td>
     <td class="num"><input type="number" step="0.01" value="${row.gastoLevar}" data-field="gastoLevar"></td>
     <td class="center"><input type="checkbox" data-field="taxaME" ${row.taxaME ? "checked" : ""} title="Considerar 4% de taxa ME sobre o preço sugerido"></td>
+    <td class="num"><input type="number" step="1" value="${row.taxaPlataforma}" data-field="taxaPlataforma" placeholder="Ex: 40" title="Comissão média cobrada pela plataforma sobre o preço de venda"></td>
     <td class="num"><input type="number" step="1" value="${row.margemDesejada}" data-field="margemDesejada" placeholder="Ex: 40"></td>
     <td class="num calc-cell" data-out="custoTotal">—</td>
+    <td class="num calc-cell" data-out="taxaPlataformaRS">—</td>
     <td class="num calc-cell price-highlight" data-out="precoSugerido">—</td>
+    <td class="num calc-cell" data-out="recebidoEstimado">—</td>
     <td class="num calc-cell" data-out="lucroEstimado">—</td>
     <td><button class="icon-btn" data-action="delete" title="Remover">✕</button></td>
   `;
@@ -912,9 +1035,12 @@ function pricingRowProduto(row) {
     <td class="num"><input type="number" step="0.01" value="${row.embalagem}" data-field="embalagem"></td>
     <td class="num"><input type="number" step="0.01" value="${row.gastoLevar}" data-field="gastoLevar"></td>
     <td class="center"><input type="checkbox" data-field="taxaME" ${row.taxaME ? "checked" : ""} title="Considerar 4% de taxa ME sobre o preço sugerido"></td>
+    <td class="num"><input type="number" step="1" value="${row.taxaPlataforma}" data-field="taxaPlataforma" placeholder="Ex: 40" title="Comissão média cobrada pela plataforma sobre o preço de venda"></td>
     <td class="num"><input type="number" step="1" value="${row.margemDesejada}" data-field="margemDesejada" placeholder="Ex: 40"></td>
     <td class="num calc-cell" data-out="custoTotal">—</td>
+    <td class="num calc-cell" data-out="taxaPlataformaRS">—</td>
     <td class="num calc-cell price-highlight" data-out="precoSugerido">—</td>
+    <td class="num calc-cell" data-out="recebidoEstimado">—</td>
     <td class="num calc-cell" data-out="lucroEstimado">—</td>
     <td><button class="icon-btn" data-action="delete" title="Remover">✕</button></td>
   `;
@@ -930,14 +1056,186 @@ function updatePricingRowCalcCells(tr, row) {
   setCalc(tr, "custoFilamento", fmtCurrency(c.custoFilamento));
   setCalc(tr, "custoEnergia", fmtCurrency(c.custoEnergia));
   setCalc(tr, "custoTotal", fmtCurrency(c.custoTotal));
+  setCalc(tr, "taxaPlataformaRS", c.taxaPlataformaRS !== null ? fmtCurrency(c.taxaPlataformaRS) : "—");
   setCalc(tr, "precoSugerido", c.precoSugerido !== null ? fmtCurrency(c.precoSugerido) : "—");
-  setCalc(tr, "lucroEstimado", c.precoSugerido !== null ? fmtCurrency(c.lucro) : "—");
+  setCalc(tr, "recebidoEstimado", c.recebidoEstimado !== null ? fmtCurrency(c.recebidoEstimado) : "—");
+  setCalc(tr, "lucroEstimado", c.lucro !== null ? fmtCurrency(c.lucro) : "—");
 
   const precoCell = tr.querySelector('[data-out="precoSugerido"]');
   if (precoCell) {
     precoCell.title = c.margemInvalida
       ? "Margem desejada muito alta para esses custos — reduza a margem ou os custos."
       : "";
+  }
+}
+
+/* ---------- Devoluções ---------- */
+
+function renderDevolucoesPanel() {
+  const panel = document.createElement("section");
+  panel.className = "panel";
+  const rows = state.devolucoes;
+
+  panel.innerHTML = `
+    <header class="panel-header">
+      <div>
+        <h1 class="page-title">Devoluções</h1>
+        <p class="panel-sub">Digite o número do pedido pra puxar o produto automaticamente. O Lucro desse pedido nas telas de Lojas, Resumo e KPIs é atualizado sozinho: em defeito "Pago pela plataforma" você recebe o valor normal, só entra a taxa de R$ 15,00; em defeito "Danificado" você perde tudo que gastou no produto + R$ 15,00; em arrependimento ou pedido não encontrado, você não recebe nada e só perde embalagem + gasto p/ levar.</p>
+      </div>
+      <div class="panel-actions">
+        <button class="primary-btn" data-action="add-row">+ Nova devolução</button>
+      </div>
+    </header>
+  `;
+
+  if (rows.length > 0) {
+    let custoTotalGeral = 0;
+    const porCategoria = { defeito: 0, arrependimento: 0, nao_encontrado: 0 };
+    rows.forEach(dev => {
+      const c = calcDevolucao(dev);
+      if (c.custoTotal !== null) custoTotalGeral += c.custoTotal;
+      if (dev.categoria && porCategoria[dev.categoria] !== undefined) porCategoria[dev.categoria]++;
+    });
+
+    const grid = document.createElement("div");
+    grid.className = "summary-grid";
+    grid.innerHTML = [
+      kpiCard("Devoluções", String(rows.length), "registradas"),
+      kpiCard("Custo Total", fmtCurrency(custoTotalGeral), "conforme categoria de cada devolução"),
+      kpiCard("Defeito", String(porCategoria.defeito), "danificado ou pago pela plataforma"),
+      kpiCard("Arrependimento / Não encontrado", String(porCategoria.arrependimento + porCategoria.nao_encontrado), "sem recebimento"),
+    ].join("");
+    panel.appendChild(grid);
+  }
+
+  const tableWrap = document.createElement("div");
+  tableWrap.className = "table-wrap";
+  const table = document.createElement("table");
+  table.className = "data-table";
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th class="col-produto">Nº Pedido</th>
+        <th>Produto</th>
+        <th>Loja</th>
+        <th>Categoria</th>
+        <th>Tipo de Defeito</th>
+        <th>Data</th>
+        <th class="num calc">Custo (R$)</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  `;
+  const tbody = table.querySelector("tbody");
+
+  if (rows.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="8"><div class="empty-state">Nenhuma devolução registrada ainda. Clique em "Nova devolução".</div></td>`;
+    tbody.appendChild(tr);
+  } else {
+    rows.forEach(dev => tbody.appendChild(devolucaoRow(dev)));
+  }
+
+  tableWrap.appendChild(table);
+  panel.appendChild(tableWrap);
+
+  panel.querySelector('[data-action="add-row"]').addEventListener("click", () => {
+    state.devolucoes.push({
+      id: uid(), example: false, numeroPedido: "", categoria: "", subtipoDefeito: "",
+      data: new Date().toISOString().slice(0, 10),
+    });
+    saveState();
+    renderContent();
+  });
+
+  return panel;
+}
+
+function devolucaoRow(dev) {
+  const tr = document.createElement("tr");
+  tr.dataset.rowId = dev.id;
+  if (dev.example) tr.classList.add("example-row");
+
+  const catOptions = ['<option value="">—</option>']
+    .concat(DEVOLUCAO_CATEGORIAS.map(c => `<option value="${c.key}" ${c.key === dev.categoria ? "selected" : ""}>${c.label}</option>`))
+    .join("");
+
+  const subtipoCell = dev.categoria === "defeito"
+    ? `<select data-field="subtipoDefeito">${['<option value="">— selecione —</option>']
+        .concat(DEFEITO_SUBTIPOS.map(s => `<option value="${s.key}" ${s.key === dev.subtipoDefeito ? "selected" : ""}>${s.label}</option>`))
+        .join("")}</select>`
+    : `<span class="devolucao-subtipo-vazio">—</span>`;
+
+  tr.innerHTML = `
+    <td class="col-produto"><input type="text" value="${escapeAttr(dev.numeroPedido || "")}" data-field="numeroPedido" placeholder="Nº do pedido"></td>
+    <td data-out="produto">—</td>
+    <td data-out="loja">—</td>
+    <td><select data-field="categoria">${catOptions}</select></td>
+    <td data-cell="subtipo">${subtipoCell}</td>
+    <td><input type="date" value="${dev.data || ""}" data-field="data"></td>
+    <td class="num calc-cell" data-out="custoTotal">—</td>
+    <td><button class="icon-btn" data-action="delete" title="Remover">✕</button></td>
+  `;
+
+  tr.querySelector('[data-field="categoria"]').addEventListener("input", e => {
+    dev.categoria = e.target.value;
+    if (dev.categoria !== "defeito") dev.subtipoDefeito = "";
+    saveState();
+    renderContent(); // precisa refazer a linha pra mostrar/esconder o seletor de sub-tipo
+  });
+
+  tr.querySelectorAll('input[data-field], select[data-field]:not([data-field="categoria"])').forEach(el => {
+    el.addEventListener("input", () => {
+      const field = el.dataset.field;
+      dev[field] = el.value;
+      saveState();
+      updateDevolucaoRowCalcCells(tr, dev);
+    });
+  });
+
+  tr.querySelector('[data-action="delete"]').addEventListener("click", () => {
+    if (!confirm(`Remover esta devolução (pedido "${dev.numeroPedido || "(sem número)"}")?`)) return;
+    state.devolucoes = state.devolucoes.filter(d => d.id !== dev.id);
+    saveState();
+    renderContent();
+  });
+
+  updateDevolucaoRowCalcCells(tr, dev);
+  return tr;
+}
+
+function updateDevolucaoRowCalcCells(tr, dev) {
+  const c = calcDevolucao(dev);
+  const produtoCell = tr.querySelector('[data-out="produto"]');
+  const lojaCell = tr.querySelector('[data-out="loja"]');
+
+  if (c.match) {
+    produtoCell.textContent = c.match.row.produto || "(sem nome)";
+    produtoCell.classList.remove("devolucao-not-found");
+    lojaCell.innerHTML = `<span class="nav-dot" style="background:${c.match.storeColor}"></span>${c.match.storeLabel}`;
+  } else if (dev.numeroPedido) {
+    produtoCell.textContent = "Pedido não encontrado";
+    produtoCell.classList.add("devolucao-not-found");
+    lojaCell.textContent = "—";
+  } else {
+    produtoCell.textContent = "—";
+    produtoCell.classList.remove("devolucao-not-found");
+    lojaCell.textContent = "—";
+  }
+
+  const custoCell = tr.querySelector('[data-out="custoTotal"]');
+  if (custoCell) {
+    if (c.custoTotal !== null) {
+      custoCell.textContent = fmtCurrency(c.custoTotal);
+      custoCell.title = "";
+    } else if (dev.categoria === "defeito") {
+      custoCell.textContent = "—";
+      custoCell.title = 'Escolha o tipo de defeito ("Danificado" ou "Pago pela plataforma") para calcular o custo.';
+    } else {
+      custoCell.textContent = "—";
+      custoCell.title = "";
+    }
   }
 }
 

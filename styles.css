@@ -423,6 +423,22 @@ td.num, td.calc-cell {
 .calc-cell { color: var(--teal); font-weight: 500; }
 .price-highlight { color: var(--accent) !important; font-weight: 700 !important; font-size: 13.5px; }
 
+.devolucao-tag {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--bad);
+  cursor: help;
+}
+
+.devolucao-not-found {
+  color: var(--bad);
+  font-style: italic;
+}
+
+.devolucao-subtipo-vazio {
+  color: var(--ink-faint);
+}
+
 table.data-table input,
 table.data-table select {
   width: 100%;
