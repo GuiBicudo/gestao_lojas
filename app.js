@@ -766,6 +766,8 @@ function renderParamsPanel() {
 
 // qual sub-aba está ativa dentro de cada loja — vive só na sessão, não é salva no banco
 let storeViewType = "3d";
+// texto de busca por Nº do pedido na tela de Lojas — vive só na sessão, não é salvo no banco
+let storeSearch = "";
 
 function head3D() {
   return `
@@ -821,7 +823,6 @@ function headProdutos() {
 function renderStorePanel(storeKey) {
   const meta = STORE_META.find(s => s.key === storeKey);
   const is3D = storeViewType === "3d";
-  const rows = state.stores[storeKey].filter(r => is3D ? r.tipo !== TIPO_REVENDA : r.tipo === TIPO_REVENDA);
 
   const panel = document.createElement("section");
   panel.className = "panel";
@@ -829,9 +830,10 @@ function renderStorePanel(storeKey) {
     <header class="panel-header">
       <div>
         <h1 class="store-title"><span class="store-dot" style="background:${meta.color}"></span>${meta.label} — Gestão de Produtos</h1>
-        <p class="panel-sub">Preencha os campos de cada produto. Os valores calculados atualizam sozinhos.</p>
+        <p class="panel-sub">Preencha os campos de cada produto. Os valores calculados atualizam sozinhos. Ordenado da data mais recente para a mais antiga.</p>
       </div>
       <div class="panel-actions">
+        <input type="text" id="store-search" class="search-input" placeholder="Buscar por Nº do pedido..." value="${escapeAttr(storeSearch)}">
         <button class="primary-btn" data-action="add-row">+ Novo produto${is3D ? " 3D" : ""}</button>
         <button class="ghost-btn small" data-action="export-csv">Exportar CSV</button>
       </div>
@@ -849,13 +851,38 @@ function renderStorePanel(storeKey) {
   `;
 
   const tbody = panel.querySelector("tbody");
-  if (rows.length === 0) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="${is3D ? 23 : 18}"><div class="empty-state">Nenhum produto cadastrado ainda. Clique em "Novo produto".</div></td>`;
-    tbody.appendChild(tr);
-  } else {
-    rows.forEach(row => tbody.appendChild(is3D ? storeRow3D(storeKey, row) : storeRowProduto(storeKey, row)));
+
+  // pega os produtos dessa loja/sub-aba, filtrados pela busca (Nº do pedido) e ordenados
+  // por data — sempre do mais recente pro mais antigo; sem data vai pro final
+  function getRows() {
+    let rows = state.stores[storeKey].filter(r => is3D ? r.tipo !== TIPO_REVENDA : r.tipo === TIPO_REVENDA);
+    const needle = storeSearch.trim().toLowerCase();
+    if (needle) rows = rows.filter(r => (r.numeroPedido || "").toLowerCase().includes(needle));
+    rows.sort((a, b) => {
+      if (!a.data && !b.data) return 0;
+      if (!a.data) return 1;
+      if (!b.data) return -1;
+      return b.data.localeCompare(a.data);
+    });
+    return rows;
   }
+
+  // reconstrói só o corpo da tabela (não mexe no campo de busca, pra não perder o foco enquanto digita)
+  function drawRows() {
+    const rows = getRows();
+    tbody.innerHTML = "";
+    if (rows.length === 0) {
+      const tr = document.createElement("tr");
+      const needle = storeSearch.trim();
+      const msg = needle ? `Nenhum pedido encontrado para "${escapeHtml(needle)}".` : 'Nenhum produto cadastrado ainda. Clique em "Novo produto".';
+      tr.innerHTML = `<td colspan="${is3D ? 23 : 18}"><div class="empty-state">${msg}</div></td>`;
+      tbody.appendChild(tr);
+    } else {
+      rows.forEach(row => tbody.appendChild(is3D ? storeRow3D(storeKey, row) : storeRowProduto(storeKey, row)));
+    }
+  }
+
+  drawRows();
 
   panel.querySelector('[data-action="add-row"]').addEventListener("click", () => {
     const base = {
@@ -867,10 +894,15 @@ function renderStorePanel(storeKey) {
       : Object.assign(base, { tipo: TIPO_REVENDA, insumos: "" });
     state.stores[storeKey].push(newRow);
     saveState();
-    renderContent();
+    drawRows();
   });
 
   panel.querySelector('[data-action="export-csv"]').addEventListener("click", () => exportStoreCSV(storeKey));
+
+  panel.querySelector("#store-search").addEventListener("input", e => {
+    storeSearch = e.target.value;
+    drawRows();
+  });
 
   panel.querySelectorAll(".segmented-btn").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -1913,90 +1945,24 @@ function renderRevenueChart(kpiRows, allMonths) {
     });
   }
 
-  wrap.innerHTML = `<h2 class="block-title">${title}</h2><div class="line-chart-wrap">${buildLineChartSVG(bars)}</div>`;
-  return wrap;
-}
+  wrap.innerHTML = `<h2 class="block-title">${title}</h2>`;
 
-// versão compacta do valor em R$, usada nos rótulos do gráfico (eixo de valores e rótulo de dado)
-function fmtCurrencyShort(v) {
-  if (v >= 1000) return "R$ " + (v / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "k";
-  return "R$ " + v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
-}
-
-// gráfico de linhas em SVG puro (sem biblioteca externa): eixo de meses/dias embaixo, eixo de
-// valores (R$) à esquerda com linhas-guia, rótulo do valor em cima de cada bolinha, e tooltip
-// nativo (<title>) com o valor exato. Todos os períodos aparecem no eixo, mas a linha só liga
-// os pontos onde teve faturamento — não desce até zero nos meses/dias sem venda.
-function buildLineChartSVG(bars) {
   const max = Math.max(1, ...bars.map(x => x.fat));
-  const w = 820, h = 260, padL = 60, padR = 16, padT = 30, padB = 34;
-  const innerW = w - padL - padR, innerH = h - padT - padB;
-  const count = bars.length;
-  const stepX = count > 1 ? innerW / (count - 1) : 0;
-  const baseY = padT + innerH;
-
-  const points = bars.map((b, i) => ({
-    x: padL + (count > 1 ? i * stepX : innerW / 2),
-    y: baseY - (b.fat / max) * innerH,
-    b,
-  }));
-
-  // eixo de valores (R$), com 4 linhas-guia horizontais
-  const yTicks = 4;
-  let yAxis = "";
-  for (let t = 0; t <= yTicks; t++) {
-    const val = (max / yTicks) * t;
-    const y = baseY - (val / max) * innerH;
-    yAxis += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${(padL + innerW).toFixed(1)}" y2="${y.toFixed(1)}" class="line-chart-grid"></line>`;
-    yAxis += `<text x="${(padL - 8).toFixed(1)}" y="${(y + 3).toFixed(1)}" class="line-chart-axis-label" text-anchor="end">${fmtCurrencyShort(val)}</text>`;
-  }
-
-  // a linha só liga pontos consecutivos com faturamento > 0 — quebra (sem ligar) nos períodos sem venda
-  const segments = [];
-  let current = [];
-  points.forEach(p => {
-    if (p.b.fat > 0) {
-      current.push(p);
-    } else if (current.length) {
-      segments.push(current);
-      current = [];
-    }
+  const chart = document.createElement("div");
+  chart.className = "bar-chart";
+  bars.forEach(x => {
+    const pct = x.fat > 0 ? Math.max(2, (x.fat / max) * 100) : 0;
+    const row = document.createElement("div");
+    row.className = "bar-row";
+    row.innerHTML = `
+      <span class="bar-label">${x.label}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:${pct}%"></span></span>
+      <span class="bar-value">${fmtCurrency(x.fat)}${x.count ? ` · ${x.count} pedido(s)` : ""}</span>
+    `;
+    chart.appendChild(row);
   });
-  if (current.length) segments.push(current);
-
-  const areas = segments.map(seg => {
-    const first = seg[0], last = seg[seg.length - 1];
-    const pts = `${first.x.toFixed(1)},${baseY.toFixed(1)} ` + seg.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ") + ` ${last.x.toFixed(1)},${baseY.toFixed(1)}`;
-    return `<polygon points="${pts}" class="line-chart-area"></polygon>`;
-  }).join("");
-
-  const polylines = segments.map(seg => {
-    const pts = seg.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
-    return `<polyline points="${pts}" class="line-chart-line"></polyline>`;
-  }).join("");
-
-  const circles = points.filter(p => p.b.fat > 0).map(p => `
-    <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" class="line-chart-dot"><title>${escapeHtml(p.b.label)}: ${fmtCurrency(p.b.fat)}${p.b.count ? ` · ${p.b.count} pedido(s)` : ""}</title></circle>
-    <text x="${p.x.toFixed(1)}" y="${(p.y - 10).toFixed(1)}" class="line-chart-value" text-anchor="middle">${fmtCurrencyShort(p.b.fat)}</text>
-  `).join("");
-
-  // se tiver muitos pontos (ex: dias do mês), mostra só alguns rótulos de período pra não sobrepor
-  const labelEvery = count > 15 ? Math.ceil(count / 12) : 1;
-
-  const xLabels = points.map((p, i) => i % labelEvery === 0
-    ? `<text x="${p.x.toFixed(1)}" y="${h - 8}" class="line-chart-label" text-anchor="middle">${escapeHtml(p.b.label)}</text>`
-    : "").join("");
-
-  return `
-    <svg class="line-chart-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="Gráfico de faturamento">
-      ${yAxis}
-      <line x1="${padL}" y1="${baseY.toFixed(1)}" x2="${(padL + innerW).toFixed(1)}" y2="${baseY.toFixed(1)}" class="line-chart-axis"></line>
-      ${areas}
-      ${polylines}
-      ${circles}
-      ${xLabels}
-    </svg>
-  `;
+  wrap.appendChild(chart);
+  return wrap;
 }
 
 function renderKpiStoreBreakdown(rows) {
