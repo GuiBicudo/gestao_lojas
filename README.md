@@ -67,8 +67,3 @@ Pronto — é só acessar esse link (e adicionar aos favoritos/tela inicial do c
   sincronização entre aparelhos, etc., vai precisar de um backend (ex: Supabase, Firebase)
   — posso ajudar a evoluir para isso quando quiser.
 
-## Editar depois
-
-Quer mudar cores, adicionar uma quarta loja, um novo campo de custo, etc.? É só pedir —
-ou editar diretamente `app.js` (lógica) e `styles.css` (visual). O código é comentado
-por seção para facilitar.
