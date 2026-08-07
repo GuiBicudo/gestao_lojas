@@ -66,9 +66,3 @@ Pronto — é só acessar esse link (e adicionar aos favoritos/tela inicial do c
 - Não há login/senha porque não há servidor. Se no futuro você quiser multiusuário,
   sincronização entre aparelhos, etc., vai precisar de um backend (ex: Supabase, Firebase)
   — posso ajudar a evoluir para isso quando quiser.
-
-## Editar depois
-
-Quer mudar cores, adicionar uma quarta loja, um novo campo de custo, etc.? É só pedir —
-ou editar diretamente `app.js` (lógica) e `styles.css` (visual). O código é comentado
-por seção para facilitar.
