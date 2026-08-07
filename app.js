@@ -23,7 +23,9 @@ const DEFEITO_SUBTIPOS = [
   { key: "danificado", label: "Defeito de fabricação" },
   { key: "pago_plataforma", label: "Danificado: Pago pela plataforma" },
 ];
-const CUSTO_EXTRA_DEFEITO = 15.0;
+// valor inicial sugerido pro campo "Valor da Devolução" quando marca "Defeito de fabricação"
+// (o usuário pode editar esse valor livremente, caso a caso)
+const DEFAULT_VALOR_DEVOLUCAO = 15.0;
 
 /* ===================== Estado ===================== */
 
@@ -99,7 +101,7 @@ function defaultState() {
     },
     devolucoes: [
       { id: uid(), example: true, numeroPedido: "SHP-100311", categoria: "arrependimento", data: "2026-06-25" },
-      { id: uid(), example: true, numeroPedido: "ML-582910", categoria: "defeito", subtipoDefeito: "danificado", data: "2026-07-15" },
+      { id: uid(), example: true, numeroPedido: "ML-582910", categoria: "defeito", subtipoDefeito: "danificado", valorDevolucao: 15.0, data: "2026-07-15" },
     ],
   };
 }
@@ -130,7 +132,8 @@ function findProductByOrderNumber(numeroPedido) {
 }
 
 // custo (impacto financeiro) de uma devolução:
-// - defeito de fabricação: não recebe nada, perde embalagem + gasto p/ levar + R$ 15 de taxa
+// - defeito de fabricação: não recebe nada, perde embalagem + gasto p/ levar + o valor de
+//   devolução informado no cadastro (campo editável, não é mais fixo em R$ 15)
 // - danificado: pago pela plataforma: recebe o valor completo — sem custo extra de devolução
 // - defeito sem sub-tipo escolhido ainda: custo indefinido (pede pra completar o cadastro)
 // - arrependimento / não encontrou o cliente: só perde embalagem + gasto p/ levar (o produto
@@ -145,7 +148,7 @@ function calcDevolucao(dev) {
 
   let custoTotal = null;
   if (dev.categoria === "defeito") {
-    if (dev.subtipoDefeito === "danificado") custoTotal = embalagem + gastoLevar + CUSTO_EXTRA_DEFEITO;
+    if (dev.subtipoDefeito === "danificado") custoTotal = embalagem + gastoLevar + n(dev.valorDevolucao);
     else if (dev.subtipoDefeito === "pago_plataforma") custoTotal = 0;
   } else if (dev.categoria === "arrependimento" || dev.categoria === "nao_encontrado") {
     custoTotal = embalagem + gastoLevar;
@@ -290,6 +293,50 @@ function fmtPercent(v) {
   return (v * 100).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + "%";
 }
 
+/* ===================== Datas (dd/mm/aaaa) =====================
+   Internamente as datas continuam guardadas como string ISO "AAAA-MM-DD" (é o que
+   permite ordenar, filtrar por mês/ano e alimentar os KPIs sem gambiarra). Só a
+   exibição/digitação nos campos de data é convertida pra dd/mm/aaaa, que é o formato
+   que faz sentido pro usuário brasileiro. */
+
+// "AAAA-MM-DD" -> "DD/MM/AAAA" (pra mostrar no campo)
+function formatDateBR(iso) {
+  if (!iso) return "";
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return "";
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+// "DD/MM/AAAA" -> "AAAA-MM-DD" (só retorna algo se a data for válida de verdade)
+function parseDateBR(str) {
+  const m = String(str || "").trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return null;
+  const day = parseInt(m[1], 10), month = parseInt(m[2], 10), year = parseInt(m[3], 10);
+  if (month < 1 || month > 12) return null;
+  const daysInMonth = new Date(year, month, 0).getDate();
+  if (day < 1 || day > daysInMonth) return null;
+  return `${m[3]}-${m[2]}-${m[1]}`;
+}
+
+// aplica a máscara dd/mm/aaaa enquanto o usuário digita (só dígitos, insere as barras sozinho)
+function maskDateTyping(value) {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 8);
+  if (digits.length > 4) return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+  if (digits.length > 2) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return digits;
+}
+
+// liga a máscara + validação num input de data em texto; chama onValidDate(iso) só quando
+// o que foi digitado já forma uma data real e completa
+function attachDateMask(el, onValidDate) {
+  el.addEventListener("input", () => {
+    const masked = maskDateTyping(el.value);
+    if (masked !== el.value) el.value = masked;
+    const iso = parseDateBR(el.value);
+    if (iso) onValidDate(iso);
+  });
+}
+
 /* ===================== Cálculos ===================== */
 
 function getFilamentPrice(filamentoId) {
@@ -322,7 +369,7 @@ function calcRow(row) {
 
   // se esse pedido está registrado na aba Devoluções, o lucro final muda:
   // - defeito de fabricação: você não recebe nada e perde embalagem + gasto p/ levar,
-  //   mais a taxa de devolução de R$ 15
+  //   mais o valor de devolução informado no cadastro (campo editável)
   // - danificado: pago pela plataforma: a loja reembolsa o valor total do produto — recebe
   //   normalmente, sem custo extra de devolução
   // - defeito sem sub-tipo escolhido ainda: mantém o cálculo normal até você completar o cadastro
@@ -332,7 +379,7 @@ function calcRow(row) {
 
   let lucro, margem;
   if (devolucao && devolucao.categoria === "defeito" && devolucao.subtipoDefeito === "danificado") {
-    lucro = -(embalagem + gastoLevar) - CUSTO_EXTRA_DEFEITO;
+    lucro = -(embalagem + gastoLevar) - n(devolucao.valorDevolucao);
     margem = precoVenda ? lucro / precoVenda : null;
   } else if (devolucao && devolucao.categoria === "defeito" && devolucao.subtipoDefeito === "pago_plataforma") {
     lucro = recebido !== null ? recebido - custoTotal : null;
@@ -701,6 +748,14 @@ function renderStorePanel(storeKey) {
 
 function bindRowInputs(tr, row) {
   tr.querySelectorAll("input, select").forEach(el => {
+    if (el.dataset.field === "data") {
+      attachDateMask(el, iso => {
+        row.data = iso;
+        saveState();
+        updateRowCalcCells(tr, row);
+      });
+      return;
+    }
     const evt = el.type === "checkbox" ? "change" : "input";
     el.addEventListener(evt, () => {
       const field = el.dataset.field;
@@ -739,7 +794,7 @@ function storeRow3D(storeKey, row) {
 
   tr.innerHTML = `
     <td class="col-produto"><input type="text" value="${escapeAttr(row.produto)}" data-field="produto" placeholder="Nome do produto"></td>
-    <td><input type="date" value="${row.data || ""}" data-field="data"></td>
+    <td><input type="text" inputmode="numeric" class="date-input" maxlength="10" value="${formatDateBR(row.data)}" data-field="data" placeholder="dd/mm/aaaa"></td>
     <td><input type="text" value="${escapeAttr(row.numeroPedido || "")}" data-field="numeroPedido" placeholder="Nº do pedido"></td>
     <td><select data-field="impressora">${printerOptions}</select></td>
     <td><select data-field="filamentoId">${filamentOptions}</select></td>
@@ -774,7 +829,7 @@ function storeRowProduto(storeKey, row) {
 
   tr.innerHTML = `
     <td class="col-produto"><input type="text" value="${escapeAttr(row.produto)}" data-field="produto" placeholder="Nome do produto"></td>
-    <td><input type="date" value="${row.data || ""}" data-field="data"></td>
+    <td><input type="text" inputmode="numeric" class="date-input" maxlength="10" value="${formatDateBR(row.data)}" data-field="data" placeholder="dd/mm/aaaa"></td>
     <td><input type="text" value="${escapeAttr(row.numeroPedido || "")}" data-field="numeroPedido" placeholder="Nº do pedido"></td>
     <td class="num"><input type="number" step="0.01" value="${row.precoVenda}" data-field="precoVenda"></td>
     <td class="num"><input type="number" step="0.01" value="${row.recebido}" data-field="recebido"></td>
@@ -1079,7 +1134,7 @@ function renderDevolucoesPanel() {
     <header class="panel-header">
       <div>
         <h1 class="page-title">Devoluções</h1>
-        <p class="panel-sub">Digite o número do pedido pra puxar o produto automaticamente. O Lucro desse pedido nas telas de Lojas, Resumo e KPIs é atualizado sozinho: em "Danificado: Pago pela plataforma" você recebe o valor completo, sem custo extra; em "Defeito de fabricação" você não recebe nada e perde embalagem + gasto p/ levar + R$ 15,00 de taxa; em arrependimento ou pedido não encontrado, você não recebe nada e só perde embalagem + gasto p/ levar.</p>
+        <p class="panel-sub">Selecione o produto pelo pedido (igual ao seletor de filamentos). O Lucro desse pedido nas telas de Lojas, Resumo e KPIs é atualizado sozinho: em "Danificado: Pago pela plataforma" você recebe o valor completo, normalmente, sem custo extra; em "Defeito de fabricação" você não recebe nada e perde embalagem + gasto p/ levar + o valor de devolução que você informar; em arrependimento ou pedido não encontrado, você não recebe nada e só perde embalagem + gasto p/ levar.</p>
       </div>
       <div class="panel-actions">
         <button class="primary-btn" data-action="add-row">+ Nova devolução</button>
@@ -1114,13 +1169,13 @@ function renderDevolucoesPanel() {
   table.innerHTML = `
     <thead>
       <tr>
-        <th class="col-produto">Nº Pedido</th>
-        <th>Produto</th>
+        <th class="col-produto">Produto</th>
         <th>Loja</th>
         <th>Categoria</th>
         <th>Tipo de Defeito</th>
+        <th class="num">Valor da Devolução (R$)</th>
         <th>Data</th>
-        <th class="num calc">Custo (R$)</th>
+        <th class="num calc">Custo Total (R$)</th>
         <th></th>
       </tr>
     </thead>
@@ -1141,7 +1196,7 @@ function renderDevolucoesPanel() {
 
   panel.querySelector('[data-action="add-row"]').addEventListener("click", () => {
     state.devolucoes.push({
-      id: uid(), example: false, numeroPedido: "", categoria: "", subtipoDefeito: "",
+      id: uid(), example: false, numeroPedido: "", categoria: "", subtipoDefeito: "", valorDevolucao: "",
       data: new Date().toISOString().slice(0, 10),
     });
     saveState();
@@ -1149,6 +1204,20 @@ function renderDevolucoesPanel() {
   });
 
   return panel;
+}
+
+// lista de produtos (de todas as lojas, 3D e Produtos) que já têm Nº Pedido preenchido —
+// é essa lista que alimenta o seletor de Produto na aba Devoluções, igual ao de filamentos
+function buildDevolucaoProductOptions(selectedNumeroPedido) {
+  const options = ['<option value="">— selecione o produto —</option>'];
+  STORE_META.forEach(meta => {
+    state.stores[meta.key].forEach(row => {
+      if (!row.numeroPedido) return;
+      const label = `${row.produto || "(sem nome)"} — ${row.numeroPedido} (${meta.label})`;
+      options.push(`<option value="${escapeAttr(row.numeroPedido)}" ${row.numeroPedido === selectedNumeroPedido ? "selected" : ""}>${escapeHtml(label)}</option>`);
+    });
+  });
+  return options.join("");
 }
 
 function devolucaoRow(dev) {
@@ -1166,13 +1235,17 @@ function devolucaoRow(dev) {
         .join("")}</select>`
     : `<span class="devolucao-subtipo-vazio">—</span>`;
 
+  const valorDevolucaoCell = dev.subtipoDefeito === "danificado"
+    ? `<input type="number" step="0.01" value="${dev.valorDevolucao ?? DEFAULT_VALOR_DEVOLUCAO}" data-field="valorDevolucao" placeholder="Ex: 15,00">`
+    : `<span class="devolucao-subtipo-vazio">—</span>`;
+
   tr.innerHTML = `
-    <td class="col-produto"><input type="text" value="${escapeAttr(dev.numeroPedido || "")}" data-field="numeroPedido" placeholder="Nº do pedido"></td>
-    <td data-out="produto">—</td>
+    <td class="col-produto"><select data-field="numeroPedido">${buildDevolucaoProductOptions(dev.numeroPedido)}</select></td>
     <td data-out="loja">—</td>
     <td><select data-field="categoria">${catOptions}</select></td>
     <td data-cell="subtipo">${subtipoCell}</td>
-    <td><input type="date" value="${dev.data || ""}" data-field="data"></td>
+    <td class="num" data-cell="valorDevolucao">${valorDevolucaoCell}</td>
+    <td><input type="text" inputmode="numeric" class="date-input" maxlength="10" value="${formatDateBR(dev.data)}" data-field="data" placeholder="dd/mm/aaaa"></td>
     <td class="num calc-cell" data-out="custoTotal">—</td>
     <td><button class="icon-btn" data-action="delete" title="Remover">✕</button></td>
   `;
@@ -1181,10 +1254,29 @@ function devolucaoRow(dev) {
     dev.categoria = e.target.value;
     if (dev.categoria !== "defeito") dev.subtipoDefeito = "";
     saveState();
-    renderContent(); // precisa refazer a linha pra mostrar/esconder o seletor de sub-tipo
+    renderContent(); // precisa refazer a linha pra mostrar/esconder o seletor de sub-tipo e o campo de valor
   });
 
-  tr.querySelectorAll('input[data-field], select[data-field]:not([data-field="categoria"])').forEach(el => {
+  const subtipoEl = tr.querySelector('[data-field="subtipoDefeito"]');
+  if (subtipoEl) {
+    subtipoEl.addEventListener("input", e => {
+      dev.subtipoDefeito = e.target.value;
+      if (dev.subtipoDefeito === "danificado" && !hasVal(dev.valorDevolucao)) {
+        dev.valorDevolucao = DEFAULT_VALOR_DEVOLUCAO; // sugestão inicial — o usuário pode editar
+      }
+      saveState();
+      renderContent(); // precisa refazer a linha pra mostrar/esconder o campo de valor da devolução
+    });
+  }
+
+  const dataEl = tr.querySelector('[data-field="data"]');
+  attachDateMask(dataEl, iso => {
+    dev.data = iso;
+    saveState();
+    updateDevolucaoRowCalcCells(tr, dev);
+  });
+
+  tr.querySelectorAll('input[data-field]:not([data-field="data"]), select[data-field]:not([data-field="categoria"]):not([data-field="subtipoDefeito"])').forEach(el => {
     el.addEventListener("input", () => {
       const field = el.dataset.field;
       dev[field] = el.value;
@@ -1194,7 +1286,7 @@ function devolucaoRow(dev) {
   });
 
   tr.querySelector('[data-action="delete"]').addEventListener("click", () => {
-    if (!confirm(`Remover esta devolução (pedido "${dev.numeroPedido || "(sem número)"}")?`)) return;
+    if (!confirm("Remover esta devolução?")) return;
     state.devolucoes = state.devolucoes.filter(d => d.id !== dev.id);
     saveState();
     renderContent();
@@ -1206,20 +1298,13 @@ function devolucaoRow(dev) {
 
 function updateDevolucaoRowCalcCells(tr, dev) {
   const c = calcDevolucao(dev);
-  const produtoCell = tr.querySelector('[data-out="produto"]');
   const lojaCell = tr.querySelector('[data-out="loja"]');
 
   if (c.match) {
-    produtoCell.textContent = c.match.row.produto || "(sem nome)";
-    produtoCell.classList.remove("devolucao-not-found");
     lojaCell.innerHTML = `<span class="nav-dot" style="background:${c.match.storeColor}"></span>${c.match.storeLabel}`;
   } else if (dev.numeroPedido) {
-    produtoCell.textContent = "Pedido não encontrado";
-    produtoCell.classList.add("devolucao-not-found");
-    lojaCell.textContent = "—";
+    lojaCell.innerHTML = `<span class="devolucao-not-found">produto não encontrado</span>`;
   } else {
-    produtoCell.textContent = "—";
-    produtoCell.classList.remove("devolucao-not-found");
     lojaCell.textContent = "—";
   }
 
@@ -1837,7 +1922,7 @@ function exportStoreCSV(storeKey) {
     const filName = state.filaments.find(f => f.id === row.filamentoId)?.nome || "";
     const cells = is3D
       ? [
-        row.produto, row.data || "", row.numeroPedido || "", row.impressora, filName,
+        row.produto, formatDateBR(row.data), row.numeroPedido || "", row.impressora, filName,
         row.precoVenda, row.recebido,
         c.taxaRS ?? "", c.taxaPct !== null ? (c.taxaPct * 100).toFixed(1) : "",
         row.taxaME ? "Sim" : "Não", c.custoTaxaME.toFixed(2),
@@ -1848,7 +1933,7 @@ function exportStoreCSV(storeKey) {
         c.margem !== null ? (c.margem * 100).toFixed(1) : "",
       ]
       : [
-        row.produto, row.data || "", row.numeroPedido || "",
+        row.produto, formatDateBR(row.data), row.numeroPedido || "",
         row.precoVenda, row.recebido,
         c.taxaRS ?? "", c.taxaPct !== null ? (c.taxaPct * 100).toFixed(1) : "",
         row.taxaME ? "Sim" : "Não", c.custoTaxaME.toFixed(2),

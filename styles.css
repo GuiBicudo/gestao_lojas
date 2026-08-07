@@ -285,7 +285,6 @@ html, body {
   flex: 1;
   min-width: 0; /* impede que a tabela larga empurre a página inteira e crie scroll horizontal no body */
   padding: 32px 36px 60px;
-  max-width: 1400px;
 }
 
 .panel {
@@ -468,6 +467,8 @@ table.data-table input:focus, table.data-table select:focus {
 
 td.col-produto input { min-width: 170px; font-weight: 500; }
 td select { min-width: 108px; }
+input[data-field="numeroPedido"] { min-width: 160px; }
+input.date-input { min-width: 96px; font-family: var(--font-mono); text-align: center; }
 
 .margin-badge {
   display: inline-flex;
