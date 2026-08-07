@@ -20,11 +20,12 @@ function uid() {
 
 function defaultState() {
   const fil1 = uid(), fil2 = uid(), fil3 = uid();
-  const exampleProduct3D = (impressora, filamentoId, data) => ({
+  const exampleProduct3D = (impressora, filamentoId, data, numeroPedido) => ({
     id: uid(),
     example: true,
     produto: "(exemplo) Vaso Geométrico P",
     data,
+    numeroPedido,
     tipo: TIPO_3D,
     impressora,
     filamentoId,
@@ -37,11 +38,12 @@ function defaultState() {
     gastoLevar: 1.0,
   });
 
-  const exampleProdutoRevenda = (data) => ({
+  const exampleProdutoRevenda = (data, numeroPedido) => ({
     id: uid(),
     example: true,
     produto: "(exemplo) Mini Console Portátil",
     data,
+    numeroPedido,
     tipo: TIPO_REVENDA,
     precoVenda: 89.9,
     recebido: 76.0,
@@ -67,9 +69,20 @@ function defaultState() {
       icone: null,
     },
     stores: {
-      shopee: [exampleProduct3D("A1", fil1, "2026-06-15"), exampleProdutoRevenda("2026-06-20")],
-      ml: [exampleProduct3D("A1 mini", fil2, "2026-07-10"), exampleProdutoRevenda("2026-07-18")],
-      tiktok: [exampleProduct3D("A1", fil3, "2026-08-05"), exampleProdutoRevenda("2026-08-06")],
+      shopee: [exampleProduct3D("A1", fil1, "2026-06-15", "SHP-100234"), exampleProdutoRevenda("2026-06-20", "SHP-100311")],
+      ml: [exampleProduct3D("A1 mini", fil2, "2026-07-10", "ML-582910"), exampleProdutoRevenda("2026-07-18", "ML-583067")],
+      tiktok: [exampleProduct3D("A1", fil3, "2026-08-05", "TT-004821"), exampleProdutoRevenda("2026-08-06", "TT-004835")],
+    },
+    pricing: {
+      threeD: [{
+        id: uid(), example: true, produto: "(exemplo) Chaveiro Personalizado",
+        impressora: "A1 mini", filamentoId: fil2, peso: 15, tempo: 0.8,
+        embalagem: 0.5, gastoLevar: 0.3, taxaME: false, margemDesejada: 45,
+      }],
+      produtos: [{
+        id: uid(), example: true, produto: "(exemplo) Capinha de Celular",
+        insumos: 8.0, embalagem: 1.0, gastoLevar: 0.5, taxaME: false, margemDesejada: 50,
+      }],
     },
   };
 }
@@ -81,6 +94,9 @@ let state = defaultState();
 function normalizeState(parsed) {
   STORE_META.forEach(s => { if (!parsed.stores[s.key]) parsed.stores[s.key] = []; });
   if (!parsed.profile) parsed.profile = { nome: "Gestão de Lojas", icone: null };
+  if (!parsed.pricing) parsed.pricing = { threeD: [], produtos: [] };
+  if (!parsed.pricing.threeD) parsed.pricing.threeD = [];
+  if (!parsed.pricing.produtos) parsed.pricing.produtos = [];
   return parsed;
 }
 
@@ -247,6 +263,32 @@ function calcRow(row) {
   return { taxaRS, taxaPct, custoFilamento, custoEnergia, custoTaxaME, custoTotal, lucro, margem };
 }
 
+// Calcula o preço de venda sugerido a partir dos custos + margem desejada (%).
+// Parte da mesma definição de margem usada no resto do site (lucro / preço de venda),
+// já considerando a taxa ME de 4% (se marcada) quando ela existir sobre o preço final:
+//   precoVenda = custoBase / (1 - taxaME% - margem%)
+function calcPricing(row) {
+  const custoFilamento = n(row.peso) / 1000 * getFilamentPrice(row.filamentoId);
+  const custoEnergia = n(row.tempo) * (getPrinterPower(row.impressora) / 1000) * n(state.params.tarifa);
+  const embalagem = n(row.embalagem);
+  const gastoLevar = n(row.gastoLevar);
+  const insumos = n(row.insumos);
+  const custoBase = custoFilamento + custoEnergia + embalagem + gastoLevar + insumos;
+
+  const margem = n(row.margemDesejada) / 100;
+  const taxaMEFrac = row.taxaME ? 0.04 : 0;
+  const denom = 1 - taxaMEFrac - margem;
+
+  let precoSugerido = null;
+  if (denom > 0) precoSugerido = custoBase / denom;
+
+  const custoTaxaME = precoSugerido !== null ? precoSugerido * taxaMEFrac : 0;
+  const custoTotal = custoBase + custoTaxaME;
+  const lucro = precoSugerido !== null ? precoSugerido - custoTotal : null;
+
+  return { custoFilamento, custoEnergia, custoBase, custoTaxaME, custoTotal, precoSugerido, lucro, margemInvalida: denom <= 0 };
+}
+
 /* ===================== Navegação ===================== */
 
 let activeTab = "filamentos";
@@ -258,6 +300,7 @@ function renderNav() {
   items.push(navGroupLabel("Produção"));
   items.push(navItem("filamentos", "Filamentos", "◆"));
   items.push(navItem("parametros", "Parâmetros", "⚙"));
+  items.push(navItem("precificacao", "Precificação", "%"));
 
   items.push(navGroupLabel("Lojas"));
   STORE_META.forEach(s => items.push(navItem(s.key, s.label, null, s.color)));
@@ -300,6 +343,7 @@ function renderContent() {
 
   if (activeTab === "filamentos") content.appendChild(renderFilamentsPanel());
   else if (activeTab === "parametros") content.appendChild(renderParamsPanel());
+  else if (activeTab === "precificacao") content.appendChild(renderPricingPanel());
   else if (activeTab === "resumo") content.appendChild(renderResumoPanel());
   else if (activeTab === "kpis") content.appendChild(renderKpisPanel());
   else if (activeTab === "perfil") content.appendChild(renderPerfilPanel());
@@ -450,6 +494,7 @@ function head3D() {
   return `
     <th class="col-produto">Produto</th>
     <th>Data</th>
+    <th>Nº Pedido</th>
     <th>Impressora</th>
     <th>Filamento</th>
     <th class="num">Venda (R$)</th>
@@ -475,6 +520,7 @@ function headProdutos() {
   return `
     <th class="col-produto">Produto</th>
     <th>Data</th>
+    <th>Nº Pedido</th>
     <th class="num">Venda (R$)</th>
     <th class="num">Recebido (R$)</th>
     <th class="num calc">Taxa (R$)</th>
@@ -524,7 +570,7 @@ function renderStorePanel(storeKey) {
   const tbody = panel.querySelector("tbody");
   if (rows.length === 0) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="${is3D ? 20 : 15}"><div class="empty-state">Nenhum produto cadastrado ainda. Clique em "Novo produto".</div></td>`;
+    tr.innerHTML = `<td colspan="${is3D ? 21 : 16}"><div class="empty-state">Nenhum produto cadastrado ainda. Clique em "Novo produto".</div></td>`;
     tbody.appendChild(tr);
   } else {
     rows.forEach(row => tbody.appendChild(is3D ? storeRow3D(storeKey, row) : storeRowProduto(storeKey, row)));
@@ -532,7 +578,7 @@ function renderStorePanel(storeKey) {
 
   panel.querySelector('[data-action="add-row"]').addEventListener("click", () => {
     const base = {
-      id: uid(), example: false, produto: "", data: new Date().toISOString().slice(0, 10),
+      id: uid(), example: false, produto: "", data: new Date().toISOString().slice(0, 10), numeroPedido: "",
       precoVenda: "", recebido: "", taxaME: false, embalagem: "", gastoLevar: "",
     };
     const newRow = is3D
@@ -596,6 +642,7 @@ function storeRow3D(storeKey, row) {
   tr.innerHTML = `
     <td class="col-produto"><input type="text" value="${escapeAttr(row.produto)}" data-field="produto" placeholder="Nome do produto"></td>
     <td><input type="date" value="${row.data || ""}" data-field="data"></td>
+    <td><input type="text" value="${escapeAttr(row.numeroPedido || "")}" data-field="numeroPedido" placeholder="Nº do pedido"></td>
     <td><select data-field="impressora">${printerOptions}</select></td>
     <td><select data-field="filamentoId">${filamentOptions}</select></td>
     <td class="num"><input type="number" step="0.01" value="${row.precoVenda}" data-field="precoVenda"></td>
@@ -630,6 +677,7 @@ function storeRowProduto(storeKey, row) {
   tr.innerHTML = `
     <td class="col-produto"><input type="text" value="${escapeAttr(row.produto)}" data-field="produto" placeholder="Nome do produto"></td>
     <td><input type="date" value="${row.data || ""}" data-field="data"></td>
+    <td><input type="text" value="${escapeAttr(row.numeroPedido || "")}" data-field="numeroPedido" placeholder="Nº do pedido"></td>
     <td class="num"><input type="number" step="0.01" value="${row.precoVenda}" data-field="precoVenda"></td>
     <td class="num"><input type="number" step="0.01" value="${row.recebido}" data-field="recebido"></td>
     <td class="num calc-cell" data-out="taxaRS">—</td>
@@ -683,7 +731,214 @@ function recalcAllStoreTables() {
       if (row) updateRowCalcCells(tr, row);
     });
   }
+  if (activeTab === "precificacao") {
+    const listKey = pricingViewType === "3d" ? "threeD" : "produtos";
+    document.querySelectorAll("tbody tr[data-row-id]").forEach(tr => {
+      const row = state.pricing[listKey].find(r => r.id === tr.dataset.rowId);
+      if (row) updatePricingRowCalcCells(tr, row);
+    });
+  }
   if (activeTab === "resumo") renderContent();
+}
+
+/* ---------- Precificação ---------- */
+
+// qual sub-aba está ativa na tela de Precificação — vive só na sessão, não é salva no banco
+let pricingViewType = "3d";
+
+function headPricing3D() {
+  return `
+    <th class="col-produto">Produto</th>
+    <th>Impressora</th>
+    <th>Filamento</th>
+    <th class="num">Peso (g)</th>
+    <th class="num">Tempo (h)</th>
+    <th class="num calc">Filamento (R$)</th>
+    <th class="num calc">Energia (R$)</th>
+    <th class="num">Embalagem (R$)</th>
+    <th class="num">Gasto p/ Levar (R$)</th>
+    <th class="center">ME 4%</th>
+    <th class="num">Margem Desejada (%)</th>
+    <th class="num calc">Custo Total (R$)</th>
+    <th class="num calc">Preço Sugerido (R$)</th>
+    <th class="num calc">Lucro Estimado (R$)</th>
+    <th></th>
+  `;
+}
+
+function headPricingProdutos() {
+  return `
+    <th class="col-produto">Produto</th>
+    <th class="num">Insumos (R$)</th>
+    <th class="num">Embalagem (R$)</th>
+    <th class="num">Gasto p/ Levar (R$)</th>
+    <th class="center">ME 4%</th>
+    <th class="num">Margem Desejada (%)</th>
+    <th class="num calc">Custo Total (R$)</th>
+    <th class="num calc">Preço Sugerido (R$)</th>
+    <th class="num calc">Lucro Estimado (R$)</th>
+    <th></th>
+  `;
+}
+
+function renderPricingPanel() {
+  const is3D = pricingViewType === "3d";
+  const listKey = is3D ? "threeD" : "produtos";
+  const rows = state.pricing[listKey];
+
+  const panel = document.createElement("section");
+  panel.className = "panel";
+  panel.innerHTML = `
+    <header class="panel-header">
+      <div>
+        <h1 class="page-title">Precificação</h1>
+        <p class="panel-sub">Informe os custos e a margem que você quer ganhar — o preço de venda sugerido é calculado sozinho (considerando a taxa ME de 4%, se marcada).</p>
+      </div>
+      <div class="panel-actions">
+        <button class="primary-btn" data-action="add-row">+ Novo item${is3D ? " 3D" : ""}</button>
+      </div>
+    </header>
+    <div class="segmented" id="pricing-type-tabs">
+      <button class="segmented-btn ${is3D ? "active" : ""}" data-type="3d">Impressão 3D</button>
+      <button class="segmented-btn ${!is3D ? "active" : ""}" data-type="produtos">Produtos</button>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr>${is3D ? headPricing3D() : headPricingProdutos()}</tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  `;
+
+  const tbody = panel.querySelector("tbody");
+  if (rows.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="${is3D ? 15 : 10}"><div class="empty-state">Nenhum item de precificação ainda. Clique em "Novo item".</div></td>`;
+    tbody.appendChild(tr);
+  } else {
+    rows.forEach(row => tbody.appendChild(is3D ? pricingRow3D(row) : pricingRowProduto(row)));
+  }
+
+  panel.querySelector('[data-action="add-row"]').addEventListener("click", () => {
+    const base = { id: uid(), example: false, produto: "", embalagem: "", gastoLevar: "", taxaME: false, margemDesejada: "" };
+    const newRow = is3D
+      ? Object.assign(base, { impressora: "", filamentoId: "", peso: "", tempo: "" })
+      : Object.assign(base, { insumos: "" });
+    state.pricing[listKey].push(newRow);
+    saveState();
+    renderContent();
+  });
+
+  panel.querySelectorAll(".segmented-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      pricingViewType = btn.dataset.type;
+      renderContent();
+    });
+  });
+
+  return panel;
+}
+
+function bindPricingRowInputs(tr, row) {
+  tr.querySelectorAll("input, select").forEach(el => {
+    const evt = el.type === "checkbox" ? "change" : "input";
+    el.addEventListener(evt, () => {
+      const field = el.dataset.field;
+      if (field === "taxaME") {
+        row.taxaME = el.checked;
+      } else {
+        row[field] = el.value;
+      }
+      saveState();
+      updatePricingRowCalcCells(tr, row);
+    });
+  });
+}
+
+function bindPricingRowDelete(tr, listKey, row) {
+  tr.querySelector('[data-action="delete"]').addEventListener("click", () => {
+    if (!confirm(`Remover "${row.produto || "(sem nome)"}" da precificação?`)) return;
+    state.pricing[listKey] = state.pricing[listKey].filter(r => r.id !== row.id);
+    saveState();
+    renderContent();
+  });
+}
+
+function pricingRow3D(row) {
+  const tr = document.createElement("tr");
+  tr.dataset.rowId = row.id;
+  if (row.example) tr.classList.add("example-row");
+
+  const filamentOptions = ['<option value="">—</option>']
+    .concat(state.filaments.map(f => `<option value="${f.id}" ${f.id === row.filamentoId ? "selected" : ""}>${escapeHtml(f.nome || "(sem nome)")}</option>`))
+    .join("");
+
+  const printerOptions = ['<option value="">—</option>']
+    .concat(PRINTERS.map(p => `<option value="${p}" ${p === row.impressora ? "selected" : ""}>${p}</option>`))
+    .join("");
+
+  tr.innerHTML = `
+    <td class="col-produto"><input type="text" value="${escapeAttr(row.produto)}" data-field="produto" placeholder="Nome do produto"></td>
+    <td><select data-field="impressora">${printerOptions}</select></td>
+    <td><select data-field="filamentoId">${filamentOptions}</select></td>
+    <td class="num"><input type="number" step="0.1" value="${row.peso}" data-field="peso"></td>
+    <td class="num"><input type="number" step="0.1" value="${row.tempo}" data-field="tempo"></td>
+    <td class="num calc-cell" data-out="custoFilamento">—</td>
+    <td class="num calc-cell" data-out="custoEnergia">—</td>
+    <td class="num"><input type="number" step="0.01" value="${row.embalagem}" data-field="embalagem"></td>
+    <td class="num"><input type="number" step="0.01" value="${row.gastoLevar}" data-field="gastoLevar"></td>
+    <td class="center"><input type="checkbox" data-field="taxaME" ${row.taxaME ? "checked" : ""} title="Considerar 4% de taxa ME sobre o preço sugerido"></td>
+    <td class="num"><input type="number" step="1" value="${row.margemDesejada}" data-field="margemDesejada" placeholder="Ex: 40"></td>
+    <td class="num calc-cell" data-out="custoTotal">—</td>
+    <td class="num calc-cell price-highlight" data-out="precoSugerido">—</td>
+    <td class="num calc-cell" data-out="lucroEstimado">—</td>
+    <td><button class="icon-btn" data-action="delete" title="Remover">✕</button></td>
+  `;
+
+  bindPricingRowInputs(tr, row);
+  bindPricingRowDelete(tr, "threeD", row);
+  updatePricingRowCalcCells(tr, row);
+  return tr;
+}
+
+function pricingRowProduto(row) {
+  const tr = document.createElement("tr");
+  tr.dataset.rowId = row.id;
+  if (row.example) tr.classList.add("example-row");
+
+  tr.innerHTML = `
+    <td class="col-produto"><input type="text" value="${escapeAttr(row.produto)}" data-field="produto" placeholder="Nome do produto"></td>
+    <td class="num"><input type="number" step="0.01" value="${row.insumos}" data-field="insumos" title="Custo dos insumos usados (ex: pendrive, memory card)"></td>
+    <td class="num"><input type="number" step="0.01" value="${row.embalagem}" data-field="embalagem"></td>
+    <td class="num"><input type="number" step="0.01" value="${row.gastoLevar}" data-field="gastoLevar"></td>
+    <td class="center"><input type="checkbox" data-field="taxaME" ${row.taxaME ? "checked" : ""} title="Considerar 4% de taxa ME sobre o preço sugerido"></td>
+    <td class="num"><input type="number" step="1" value="${row.margemDesejada}" data-field="margemDesejada" placeholder="Ex: 40"></td>
+    <td class="num calc-cell" data-out="custoTotal">—</td>
+    <td class="num calc-cell price-highlight" data-out="precoSugerido">—</td>
+    <td class="num calc-cell" data-out="lucroEstimado">—</td>
+    <td><button class="icon-btn" data-action="delete" title="Remover">✕</button></td>
+  `;
+
+  bindPricingRowInputs(tr, row);
+  bindPricingRowDelete(tr, "produtos", row);
+  updatePricingRowCalcCells(tr, row);
+  return tr;
+}
+
+function updatePricingRowCalcCells(tr, row) {
+  const c = calcPricing(row);
+  setCalc(tr, "custoFilamento", fmtCurrency(c.custoFilamento));
+  setCalc(tr, "custoEnergia", fmtCurrency(c.custoEnergia));
+  setCalc(tr, "custoTotal", fmtCurrency(c.custoTotal));
+  setCalc(tr, "precoSugerido", c.precoSugerido !== null ? fmtCurrency(c.precoSugerido) : "—");
+  setCalc(tr, "lucroEstimado", c.precoSugerido !== null ? fmtCurrency(c.lucro) : "—");
+
+  const precoCell = tr.querySelector('[data-out="precoSugerido"]');
+  if (precoCell) {
+    precoCell.title = c.margemInvalida
+      ? "Margem desejada muito alta para esses custos — reduza a margem ou os custos."
+      : "";
+  }
 }
 
 /* ---------- Resumo ---------- */
@@ -1230,10 +1485,10 @@ function exportStoreCSV(storeKey) {
   const rows = state.stores[storeKey].filter(r => is3D ? r.tipo !== TIPO_REVENDA : r.tipo === TIPO_REVENDA);
 
   const headers = is3D
-    ? ["Produto", "Data", "Impressora", "Filamento", "Venda (R$)", "Recebido (R$)",
+    ? ["Produto", "Data", "Nº Pedido", "Impressora", "Filamento", "Venda (R$)", "Recebido (R$)",
       "Taxa (R$)", "Taxa (%)", "ME 4%", "Taxa ME (R$)", "Peso (g)", "Tempo (h)", "Filamento (R$)", "Energia (R$)",
       "Embalagem (R$)", "Gasto p/ Levar (R$)", "Custo Total (R$)", "Lucro (R$)", "Margem (%)"]
-    : ["Produto", "Data", "Venda (R$)", "Recebido (R$)", "Taxa (R$)", "Taxa (%)", "ME 4%", "Taxa ME (R$)",
+    : ["Produto", "Data", "Nº Pedido", "Venda (R$)", "Recebido (R$)", "Taxa (R$)", "Taxa (%)", "ME 4%", "Taxa ME (R$)",
       "Insumos (R$)", "Embalagem (R$)", "Gasto p/ Levar (R$)", "Custo Total (R$)", "Lucro (R$)", "Margem (%)"];
 
   const lines = [headers.join(";")];
@@ -1242,7 +1497,7 @@ function exportStoreCSV(storeKey) {
     const filName = state.filaments.find(f => f.id === row.filamentoId)?.nome || "";
     const cells = is3D
       ? [
-        row.produto, row.data || "", row.impressora, filName,
+        row.produto, row.data || "", row.numeroPedido || "", row.impressora, filName,
         row.precoVenda, row.recebido,
         c.taxaRS ?? "", c.taxaPct !== null ? (c.taxaPct * 100).toFixed(1) : "",
         row.taxaME ? "Sim" : "Não", c.custoTaxaME.toFixed(2),
@@ -1253,7 +1508,7 @@ function exportStoreCSV(storeKey) {
         c.margem !== null ? (c.margem * 100).toFixed(1) : "",
       ]
       : [
-        row.produto, row.data || "",
+        row.produto, row.data || "", row.numeroPedido || "",
         row.precoVenda, row.recebido,
         c.taxaRS ?? "", c.taxaPct !== null ? (c.taxaPct * 100).toFixed(1) : "",
         row.taxaME ? "Sim" : "Não", c.custoTaxaME.toFixed(2),
@@ -1353,6 +1608,30 @@ document.getElementById("btn-toggle-sidebar").addEventListener("click", () => {
   localStorage.setItem(SIDEBAR_COLLAPSE_KEY, sidebarCollapsed ? "1" : "0");
   applySidebarState();
 });
+
+/* ===================== Tema claro/escuro ===================== */
+
+const THEME_KEY = "gestaoLojas3D_theme";
+let theme = localStorage.getItem(THEME_KEY) || "light";
+
+function applyTheme() {
+  document.documentElement.setAttribute("data-theme", theme);
+  const btn = document.getElementById("btn-theme-toggle");
+  if (btn) {
+    const isDark = theme === "dark";
+    btn.querySelector(".btn-icon").textContent = isDark ? "☀" : "☾";
+    btn.querySelector(".btn-label").textContent = isDark ? "Modo claro" : "Modo escuro";
+    btn.title = isDark ? "Mudar para modo claro" : "Mudar para modo escuro";
+  }
+}
+
+document.getElementById("btn-theme-toggle").addEventListener("click", () => {
+  theme = theme === "dark" ? "light" : "dark";
+  localStorage.setItem(THEME_KEY, theme);
+  applyTheme();
+});
+
+applyTheme();
 
 /* ===================== Init ===================== */
 
