@@ -657,13 +657,14 @@ function renderResumoPanel() {
 
 /* ---------- KPIs ---------- */
 
-// filtro de mês da tela de KPIs — vive só na sessão, não é salvo no banco
-let kpiState = { month: "" };
+// filtro de período da tela de KPIs — vive só na sessão, não é salvo no banco
+let kpiState = { year: "", month: "" };
+
+const MONTH_NAMES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
 function monthLabel(m) {
   const [y, mo] = m.split("-");
-  const names = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-  return `${names[parseInt(mo, 10) - 1]}/${y}`;
+  return `${MONTH_NAMES[parseInt(mo, 10) - 1]}/${y}`;
 }
 
 function kpiCard(label, value, sub) {
@@ -676,11 +677,20 @@ function renderKpisPanel() {
 
   // só entram nos KPIs pedidos reais (sem os produtos de exemplo) com data preenchida
   const kpiRows = allRows().filter(r => !r.example && r.data);
+  const years = [...new Set(kpiRows.map(r => r.data.slice(0, 4)))].sort();
   const months = [...new Set(kpiRows.map(r => r.data.slice(0, 7)))].sort();
+
+  if (kpiState.year && !years.includes(kpiState.year)) { kpiState.year = ""; kpiState.month = ""; }
+  if (kpiState.month && kpiState.month.slice(0, 4) !== kpiState.year) kpiState.month = "";
   if (kpiState.month && !months.includes(kpiState.month)) kpiState.month = "";
 
+  const monthsInYear = months.filter(m => !kpiState.year || m.slice(0, 4) === kpiState.year);
+
+  const yearOptions = ['<option value="">Todos os anos</option>']
+    .concat(years.map(y => `<option value="${y}" ${y === kpiState.year ? "selected" : ""}>${y}</option>`))
+    .join("");
   const monthOptions = ['<option value="">Todos os meses</option>']
-    .concat(months.map(m => `<option value="${m}" ${m === kpiState.month ? "selected" : ""}>${monthLabel(m)}</option>`))
+    .concat(monthsInYear.map(m => `<option value="${m}" ${m === kpiState.month ? "selected" : ""}>${MONTH_NAMES[parseInt(m.slice(5, 7), 10) - 1]}</option>`))
     .join("");
 
   panel.innerHTML = `
@@ -690,25 +700,38 @@ function renderKpisPanel() {
         <p class="panel-sub">Baseado nos pedidos com a coluna "Data" preenchida em cada loja. Produtos de exemplo não entram na conta.</p>
       </div>
       <div class="panel-actions">
+        <select id="kpi-year">${yearOptions}</select>
         <select id="kpi-month">${monthOptions}</select>
       </div>
     </header>
   `;
+
+  const bindFilters = () => {
+    panel.querySelector("#kpi-year").addEventListener("change", e => {
+      kpiState.year = e.target.value;
+      kpiState.month = "";
+      renderContent();
+    });
+    panel.querySelector("#kpi-month").addEventListener("change", e => {
+      kpiState.month = e.target.value;
+      renderContent();
+    });
+  };
 
   if (kpiRows.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
     empty.textContent = 'Nenhum pedido com data cadastrada ainda. Preencha a coluna "Data" nos seus produtos para ver os KPIs aqui.';
     panel.appendChild(empty);
-
-    panel.querySelector("#kpi-month").addEventListener("change", e => {
-      kpiState.month = e.target.value;
-      renderContent();
-    });
+    bindFilters();
     return panel;
   }
 
-  const filtered = kpiState.month ? kpiRows.filter(r => r.data.slice(0, 7) === kpiState.month) : kpiRows;
+  const filtered = kpiRows.filter(r => {
+    if (kpiState.year && r.data.slice(0, 4) !== kpiState.year) return false;
+    if (kpiState.month && r.data.slice(0, 7) !== kpiState.month) return false;
+    return true;
+  });
 
   let faturamento = 0, custoTotal = 0, lucro = 0;
   const pedidos = filtered.length;
@@ -731,41 +754,70 @@ function renderKpisPanel() {
   ].join("");
   panel.appendChild(grid);
 
-  panel.appendChild(renderMonthlyChart(kpiRows, months, kpiState.month));
+  panel.appendChild(renderRevenueChart(kpiRows, months));
   panel.appendChild(renderKpiStoreBreakdown(filtered));
   panel.appendChild(renderTopProducts(filtered));
 
-  panel.querySelector("#kpi-month").addEventListener("change", e => {
-    kpiState.month = e.target.value;
-    renderContent();
-  });
-
+  bindFilters();
   return panel;
 }
 
-function renderMonthlyChart(kpiRows, months, activeMonth) {
+// Gráfico de faturamento que se adapta ao período escolhido:
+// mês específico selecionado -> barras por dia daquele mês
+// ano selecionado (sem mês)   -> barras por mês daquele ano
+// nada selecionado            -> barras por mês de todo o histórico
+function renderRevenueChart(kpiRows, allMonths) {
   const wrap = document.createElement("div");
   wrap.className = "panel-block";
-  wrap.innerHTML = `<h2 class="block-title">Faturamento por mês</h2>`;
 
-  const byMonth = months.map(m => {
-    const rows = kpiRows.filter(r => r.data.slice(0, 7) === m);
-    let fat = 0;
-    rows.forEach(r => { fat += n(r.precoVenda); });
-    return { m, fat, count: rows.length };
-  });
-  const max = Math.max(1, ...byMonth.map(x => x.fat));
+  let title, bars;
 
+  if (kpiState.month) {
+    const [y, mo] = kpiState.month.split("-").map(Number);
+    const daysInMonth = new Date(y, mo, 0).getDate();
+    const monthRows = kpiRows.filter(r => r.data.slice(0, 7) === kpiState.month);
+    title = `Faturamento por dia — ${MONTH_NAMES[mo - 1]}/${y}`;
+    bars = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dayStr = `${kpiState.month}-${String(d).padStart(2, "0")}`;
+      const dayRows = monthRows.filter(r => r.data === dayStr);
+      let fat = 0;
+      dayRows.forEach(r => { fat += n(r.precoVenda); });
+      bars.push({ label: String(d).padStart(2, "0"), fat, count: dayRows.length });
+    }
+  } else if (kpiState.year) {
+    const yearRows = kpiRows.filter(r => r.data.slice(0, 4) === kpiState.year);
+    title = `Faturamento por mês — ${kpiState.year}`;
+    bars = MONTH_NAMES.map((name, idx) => {
+      const mKey = `${kpiState.year}-${String(idx + 1).padStart(2, "0")}`;
+      const mRows = yearRows.filter(r => r.data.slice(0, 7) === mKey);
+      let fat = 0;
+      mRows.forEach(r => { fat += n(r.precoVenda); });
+      return { label: name, fat, count: mRows.length };
+    });
+  } else {
+    title = "Faturamento por mês";
+    bars = allMonths.map(m => {
+      const mRows = kpiRows.filter(r => r.data.slice(0, 7) === m);
+      let fat = 0;
+      mRows.forEach(r => { fat += n(r.precoVenda); });
+      return { label: monthLabel(m), fat, count: mRows.length };
+    });
+  }
+
+  wrap.innerHTML = `<h2 class="block-title">${title}</h2>`;
+
+  const max = Math.max(1, ...bars.map(x => x.fat));
   const chart = document.createElement("div");
   chart.className = "bar-chart";
-  byMonth.forEach(x => {
-    const pct = Math.max(2, (x.fat / max) * 100);
+  bars.forEach(x => {
+    const pct = x.fat > 0 ? Math.max(2, (x.fat / max) * 100) : 0;
     const row = document.createElement("div");
-    row.className = "bar-row" + (x.m === activeMonth ? " active" : "");
+    row.className = "bar-row";
     row.innerHTML = `
-      <span class="bar-label">${monthLabel(x.m)}</span>
+      <span class="bar-label">${x.label}</span>
       <span class="bar-track"><span class="bar-fill" style="width:${pct}%"></span></span>
-      <span class="bar-value">${fmtCurrency(x.fat)} · ${x.count} pedido(s)</span>
+      <span class="bar-value">${fmtCurrency(x.fat)}${x.count ? ` · ${x.count} pedido(s)` : ""}</span>
     `;
     chart.appendChild(row);
   });
@@ -784,22 +836,45 @@ function renderKpiStoreBreakdown(rows) {
     storeRows.forEach(r => { fat += n(r.precoVenda); });
     return { meta, fat, count: storeRows.length };
   });
-  const max = Math.max(1, ...byStore.map(x => x.fat));
+  const total = byStore.reduce((sum, x) => sum + x.fat, 0);
 
-  const chart = document.createElement("div");
-  chart.className = "bar-chart";
-  byStore.forEach(x => {
-    const pct = Math.max(2, (x.fat / max) * 100);
-    const row = document.createElement("div");
-    row.className = "bar-row";
-    row.innerHTML = `
-      <span class="bar-label"><span class="nav-dot" style="background:${x.meta.color}"></span>${x.meta.label}</span>
-      <span class="bar-track"><span class="bar-fill" style="width:${pct}%;background:${x.meta.color}"></span></span>
-      <span class="bar-value">${fmtCurrency(x.fat)} · ${x.count} pedido(s)</span>
+  const pieWrap = document.createElement("div");
+  pieWrap.className = "pie-wrap";
+
+  if (total <= 0) {
+    pieWrap.innerHTML = `<div class="empty-state">Sem faturamento nesse período.</div>`;
+    wrap.appendChild(pieWrap);
+    return wrap;
+  }
+
+  let acc = 0;
+  const slices = byStore.filter(x => x.fat > 0).map(x => {
+    const start = (acc / total) * 360;
+    acc += x.fat;
+    const end = (acc / total) * 360;
+    return `${x.meta.color} ${start.toFixed(2)}deg ${end.toFixed(2)}deg`;
+  }).join(", ");
+
+  const pie = document.createElement("div");
+  pie.className = "pie-chart";
+  pie.style.background = `conic-gradient(${slices})`;
+  pieWrap.appendChild(pie);
+
+  const legend = document.createElement("div");
+  legend.className = "pie-legend";
+  legend.innerHTML = byStore.map(x => {
+    const pct = total ? (x.fat / total) * 100 : 0;
+    return `
+      <div class="pie-legend-item">
+        <span class="nav-dot" style="background:${x.meta.color}"></span>
+        <span class="pie-legend-label">${x.meta.label}</span>
+        <span class="pie-legend-value">${fmtCurrency(x.fat)} · ${pct.toFixed(1)}% · ${x.count} pedido(s)</span>
+      </div>
     `;
-    chart.appendChild(row);
-  });
-  wrap.appendChild(chart);
+  }).join("");
+  pieWrap.appendChild(legend);
+
+  wrap.appendChild(pieWrap);
   return wrap;
 }
 
