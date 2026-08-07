@@ -1710,6 +1710,19 @@ function monthAddOffset(monthStr, offset) {
   return `${ny}-${String(nm).padStart(2, "0")}`;
 }
 
+// lista todos os meses entre "from" e "to" (inclusive), mesmo os que não têm nenhum dado —
+// usada pra manter a linha do tempo do gráfico completa, sem "buracos" de meses ausentes
+function monthRangeInclusive(from, to) {
+  const result = [];
+  let cur = from;
+  while (true) {
+    result.push(cur);
+    if (cur === to) break;
+    cur = monthAddOffset(cur, 1);
+  }
+  return result;
+}
+
 // Crescimento nos últimos 12 meses: compara o faturamento do mês mais recente com o de 12 meses
 // atrás — mas se o histórico for menor que isso, usa o primeiro mês que já teve faturamento
 // como ponto de partida, em vez de "quebrar" ou considerar um mês sem dado nenhum.
@@ -1889,7 +1902,10 @@ function renderRevenueChart(kpiRows, allMonths) {
     });
   } else {
     title = "Faturamento por mês";
-    bars = allMonths.map(m => {
+    // preenche os meses "vazios" entre o primeiro e o último mês com venda, pra manter a
+    // linha do tempo completa mesmo quando não vendeu nada em algum mês do meio
+    const monthsRange = allMonths.length ? monthRangeInclusive(allMonths[0], allMonths[allMonths.length - 1]) : [];
+    bars = monthsRange.map(m => {
       const mRows = kpiRows.filter(r => r.data.slice(0, 7) === m);
       let fat = 0;
       mRows.forEach(r => { fat += n(r.precoVenda); });
@@ -1901,38 +1917,84 @@ function renderRevenueChart(kpiRows, allMonths) {
   return wrap;
 }
 
-// gráfico de linhas em SVG puro (sem biblioteca externa), com pontos e tooltip nativo (<title>)
+// versão compacta do valor em R$, usada nos rótulos do gráfico (eixo de valores e rótulo de dado)
+function fmtCurrencyShort(v) {
+  if (v >= 1000) return "R$ " + (v / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "k";
+  return "R$ " + v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+}
+
+// gráfico de linhas em SVG puro (sem biblioteca externa): eixo de meses/dias embaixo, eixo de
+// valores (R$) à esquerda com linhas-guia, rótulo do valor em cima de cada bolinha, e tooltip
+// nativo (<title>) com o valor exato. Todos os períodos aparecem no eixo, mas a linha só liga
+// os pontos onde teve faturamento — não desce até zero nos meses/dias sem venda.
 function buildLineChartSVG(bars) {
   const max = Math.max(1, ...bars.map(x => x.fat));
-  const w = 760, h = 220, padL = 12, padR = 12, padT = 16, padB = 28;
+  const w = 820, h = 260, padL = 60, padR = 16, padT = 30, padB = 34;
   const innerW = w - padL - padR, innerH = h - padT - padB;
   const count = bars.length;
   const stepX = count > 1 ? innerW / (count - 1) : 0;
+  const baseY = padT + innerH;
 
   const points = bars.map((b, i) => ({
     x: padL + (count > 1 ? i * stepX : innerW / 2),
-    y: padT + innerH - (b.fat / max) * innerH,
+    y: baseY - (b.fat / max) * innerH,
     b,
   }));
 
-  const polyPoints = points.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
-  const areaPoints = `${padL.toFixed(1)},${(padT + innerH).toFixed(1)} ${polyPoints} ${(padL + innerW).toFixed(1)},${(padT + innerH).toFixed(1)}`;
+  // eixo de valores (R$), com 4 linhas-guia horizontais
+  const yTicks = 4;
+  let yAxis = "";
+  for (let t = 0; t <= yTicks; t++) {
+    const val = (max / yTicks) * t;
+    const y = baseY - (val / max) * innerH;
+    yAxis += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${(padL + innerW).toFixed(1)}" y2="${y.toFixed(1)}" class="line-chart-grid"></line>`;
+    yAxis += `<text x="${(padL - 8).toFixed(1)}" y="${(y + 3).toFixed(1)}" class="line-chart-axis-label" text-anchor="end">${fmtCurrencyShort(val)}</text>`;
+  }
 
-  // se tiver muitos pontos (ex: dias do mês), mostra só alguns rótulos pra não sobrepor
+  // a linha só liga pontos consecutivos com faturamento > 0 — quebra (sem ligar) nos períodos sem venda
+  const segments = [];
+  let current = [];
+  points.forEach(p => {
+    if (p.b.fat > 0) {
+      current.push(p);
+    } else if (current.length) {
+      segments.push(current);
+      current = [];
+    }
+  });
+  if (current.length) segments.push(current);
+
+  const areas = segments.map(seg => {
+    const first = seg[0], last = seg[seg.length - 1];
+    const pts = `${first.x.toFixed(1)},${baseY.toFixed(1)} ` + seg.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ") + ` ${last.x.toFixed(1)},${baseY.toFixed(1)}`;
+    return `<polygon points="${pts}" class="line-chart-area"></polygon>`;
+  }).join("");
+
+  const polylines = segments.map(seg => {
+    const pts = seg.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+    return `<polyline points="${pts}" class="line-chart-line"></polyline>`;
+  }).join("");
+
+  const circles = points.filter(p => p.b.fat > 0).map(p => `
+    <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" class="line-chart-dot"><title>${escapeHtml(p.b.label)}: ${fmtCurrency(p.b.fat)}${p.b.count ? ` · ${p.b.count} pedido(s)` : ""}</title></circle>
+    <text x="${p.x.toFixed(1)}" y="${(p.y - 10).toFixed(1)}" class="line-chart-value" text-anchor="middle">${fmtCurrencyShort(p.b.fat)}</text>
+  `).join("");
+
+  // se tiver muitos pontos (ex: dias do mês), mostra só alguns rótulos de período pra não sobrepor
   const labelEvery = count > 15 ? Math.ceil(count / 12) : 1;
 
-  const circles = points.map(p => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" class="line-chart-dot"><title>${escapeHtml(p.b.label)}: ${fmtCurrency(p.b.fat)}${p.b.count ? ` · ${p.b.count} pedido(s)` : ""}</title></circle>`).join("");
-
-  const labels = points.map((p, i) => i % labelEvery === 0
+  const xLabels = points.map((p, i) => i % labelEvery === 0
     ? `<text x="${p.x.toFixed(1)}" y="${h - 8}" class="line-chart-label" text-anchor="middle">${escapeHtml(p.b.label)}</text>`
     : "").join("");
 
   return `
     <svg class="line-chart-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="Gráfico de faturamento">
-      <polygon points="${areaPoints}" class="line-chart-area"></polygon>
-      <polyline points="${polyPoints}" class="line-chart-line"></polyline>
+      ${yAxis}
+      <line x1="${padL}" y1="${baseY.toFixed(1)}" x2="${(padL + innerW).toFixed(1)}" y2="${baseY.toFixed(1)}" class="line-chart-axis"></line>
+      ${areas}
+      ${polylines}
       ${circles}
-      ${labels}
+      ${xLabels}
     </svg>
   `;
 }

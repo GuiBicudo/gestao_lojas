@@ -619,7 +619,7 @@ input.date-input { min-width: 96px; font-family: var(--font-mono); text-align: c
 
 .line-chart-svg {
   width: 100%;
-  height: 220px;
+  height: 260px;
   display: block;
   overflow: visible;
 }
@@ -648,10 +648,37 @@ input.date-input { min-width: 96px; font-family: var(--font-mono); text-align: c
   fill: var(--accent);
 }
 
+/* rótulos dos períodos (meses/dias) no eixo horizontal — cor forte (branca no tema escuro) */
 .line-chart-label {
-  fill: var(--ink-faint);
+  fill: var(--ink);
   font-size: 10.5px;
+  font-weight: 500;
   font-family: var(--font-body);
+}
+
+/* eixo de valores (R$): linhas-guia e números, mais discretos que os rótulos de período */
+.line-chart-grid {
+  stroke: var(--line-soft);
+  stroke-width: 1;
+}
+
+.line-chart-axis {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.line-chart-axis-label {
+  fill: var(--ink-faint);
+  font-size: 9.5px;
+  font-family: var(--font-mono);
+}
+
+/* rótulo do valor de faturamento em cima de cada bolinha */
+.line-chart-value {
+  fill: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
 }
 
 .pie-wrap {
