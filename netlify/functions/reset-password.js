@@ -37,7 +37,9 @@ exports.handler = async (event) => {
 
   const passwordHash = await bcrypt.hash(password, 10);
 
-  await sql`update users set password_hash = ${passwordHash} where id = ${record.user_id}`;
+  // Também revoga qualquer sessão antiga (token_version + 1) — se a troca de senha foi
+  // porque a conta estava comprometida, isso derruba o acesso de quem tinha a senha velha.
+  await sql`update users set password_hash = ${passwordHash}, token_version = token_version + 1 where id = ${record.user_id}`;
   await sql`update password_reset_tokens set used = true where id = ${record.id}`;
 
   return json(200, { ok: true, message: "Senha redefinida! Você já pode entrar com a nova senha." });

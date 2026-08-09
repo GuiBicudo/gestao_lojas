@@ -2,7 +2,7 @@ const { sql } = require("./_db");
 const { getSessionFromEvent, isOwnerEmail, json } = require("./_auth");
 
 exports.handler = async (event) => {
-  const session = getSessionFromEvent(event);
+  const session = await getSessionFromEvent(event);
   if (!session) return json(200, { authenticated: false });
 
   const rows = await sql`select id, email, status, trial_ends_at, blocked_at from users where id = ${session.id}`;

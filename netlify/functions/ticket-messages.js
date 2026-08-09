@@ -2,7 +2,7 @@ const { sql } = require("./_db");
 const { getSessionFromEvent, isOwnerEmail, json } = require("./_auth");
 
 exports.handler = async (event) => {
-  const session = getSessionFromEvent(event);
+  const session = await getSessionFromEvent(event);
   if (!session) return json(401, { error: "not_authenticated" });
 
   const ticketId = event.queryStringParameters && event.queryStringParameters.ticketId;

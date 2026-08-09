@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const { sql } = require("./_db");
 const { json } = require("./_auth");
 const { sendMail } = require("./_email");
+const { getClientIp, isRateLimited, recordAttempt, RATE_LIMIT_RESPONSE } = require("./_rateLimit");
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hora
 
@@ -26,6 +27,12 @@ exports.handler = async (event) => {
   const genericMessage = { message: "Se esse e-mail estiver cadastrado, você vai receber um link de recuperação em instantes." };
 
   if (!email) return json(200, genericMessage);
+
+  const ip = getClientIp(event);
+  // Limita pedidos de recuperação por IP/e-mail — sem isso, dava pra usar esse endpoint
+  // pra encher a caixa de entrada de alguém (spam) ou ficar testando e-mails em massa.
+  if (await isRateLimited("forgot_password", ip, email)) return json(429, RATE_LIMIT_RESPONSE);
+  await recordAttempt("forgot_password", ip, email);
 
   const rows = await sql`select id, email from users where email = ${email}`;
   const user = rows[0];

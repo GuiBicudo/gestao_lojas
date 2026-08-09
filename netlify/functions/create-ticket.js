@@ -4,7 +4,7 @@ const { getSessionFromEvent, json } = require("./_auth");
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { error: "method_not_allowed" });
 
-  const session = getSessionFromEvent(event);
+  const session = await getSessionFromEvent(event);
   if (!session) return json(401, { error: "not_authenticated" });
 
   let body;

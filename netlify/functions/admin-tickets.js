@@ -3,7 +3,7 @@ const { getSessionFromEvent, isOwnerEmail, json } = require("./_auth");
 const { cleanupExpiredTickets } = require("./_ticketCleanup");
 
 exports.handler = async (event) => {
-  const session = getSessionFromEvent(event);
+  const session = await getSessionFromEvent(event);
   if (!session || !isOwnerEmail(session.email)) return json(403, { error: "forbidden" });
 
   await cleanupExpiredTickets();

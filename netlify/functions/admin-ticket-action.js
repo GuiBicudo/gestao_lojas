@@ -4,7 +4,7 @@ const { getSessionFromEvent, isOwnerEmail, json } = require("./_auth");
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { error: "method_not_allowed" });
 
-  const session = getSessionFromEvent(event);
+  const session = await getSessionFromEvent(event);
   if (!session || !isOwnerEmail(session.email)) return json(403, { error: "forbidden" });
 
   let body;

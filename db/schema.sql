@@ -12,13 +12,18 @@ create table if not exists users (
   created_at timestamptz not null default now(),
   approved_at timestamptz,
   trial_ends_at timestamptz,
-  blocked_at timestamptz
+  blocked_at timestamptz,
+  -- Contador usado pra "revogar" sessões: incrementado no logout (e na troca de senha), o
+  -- token JWT guarda o valor de quando foi emitido — se não bater mais com o do banco, a
+  -- sessão é rejeitada mesmo que o token em si ainda não tenha expirado (30 dias).
+  token_version integer not null default 0
 );
 
--- Se você já rodou esse script antes (banco já existia), rode também estas duas linhas
+-- Se você já rodou esse script antes (banco já existia), rode também estas linhas
 -- pra adicionar as colunas novas sem perder os dados:
 -- alter table users add column if not exists trial_ends_at timestamptz;
 -- alter table users add column if not exists blocked_at timestamptz;
+-- alter table users add column if not exists token_version integer not null default 0;
 
 create table if not exists app_state (
   user_id uuid primary key references users(id) on delete cascade,
@@ -53,10 +58,23 @@ create table if not exists ticket_messages (
   created_at timestamptz not null default now()
 );
 
+-- Registro de tentativas de login/cadastro/recuperação de senha, usado pra limitar força
+-- bruta (rate limiting) por IP e por conta. Linhas antigas (> 24h) são apagadas sozinhas
+-- de forma oportunista a cada checagem, então essa tabela não cresce sem parar.
+create table if not exists auth_attempts (
+  id uuid primary key default gen_random_uuid(),
+  scope text not null check (scope in ('login', 'signup', 'forgot_password')),
+  ip text not null,
+  email text,
+  created_at timestamptz not null default now()
+);
+
 create index if not exists idx_users_status on users(status);
 create index if not exists idx_reset_tokens_hash on password_reset_tokens(token_hash);
 create index if not exists idx_tickets_status on tickets(status);
 create index if not exists idx_ticket_messages_ticket on ticket_messages(ticket_id);
+create index if not exists idx_auth_attempts_scope_ip on auth_attempts(scope, ip, created_at);
+create index if not exists idx_auth_attempts_scope_email on auth_attempts(scope, email, created_at);
 
 -- Se o banco já existia antes dessa tabela, rode só isso (o create table if not exists
 -- acima já cobre bancos novos):
