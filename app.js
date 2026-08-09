@@ -334,6 +334,13 @@ function n(v) {
   return isNaN(num) ? 0 : num;
 }
 
+// Campos que nunca podem ficar negativos (preço, custo, quantidade, taxa). Se o valor
+// digitado for negativo, o próprio campo volta pra 0 na hora — usado nos listeners de
+// input das tabelas do app inteiro pra fechar esse tipo de bug de uma vez.
+function clampNegativeInput(inputEl) {
+  if (inputEl.value !== "" && n(inputEl.value) < 0) inputEl.value = 0;
+}
+
 function hasVal(v) {
   return v !== "" && v !== null && v !== undefined && !isNaN(parseFloat(v));
 }
@@ -985,6 +992,7 @@ function printerRow(p) {
   tr.querySelectorAll("input").forEach(input => {
     input.addEventListener("input", () => {
       const field = input.dataset.field;
+      if (field === "potencia") clampNegativeInput(input);
       const oldNome = p.nome;
       p[field] = field === "potencia" ? n(input.value) : input.value;
       saveState();
@@ -1027,7 +1035,7 @@ function renderParamsPanel() {
       <div class="param-card">
         <label>Tarifa de Energia</label>
         <div class="unit-input">
-          <input type="number" step="0.0001" id="p-tarifa" value="${state.params.tarifa}">
+          <input type="number" step="0.0001" min="0" id="p-tarifa" value="${state.params.tarifa}">
           <span class="unit">R$/kWh</span>
         </div>
         <p class="param-note">Tarifa base Enel SP (TUSD+TE), vigente desde 04/07/2026, sem impostos. Sua conta de luz mostra o valor real (geralmente entre R$ 0,90 e R$ 1,05 em SP capital) — recomendamos usar esse valor.</p>
@@ -1036,6 +1044,7 @@ function renderParamsPanel() {
   `;
 
   panel.querySelector("#p-tarifa").addEventListener("input", e => {
+    clampNegativeInput(e.target);
     state.params.tarifa = n(e.target.value);
     saveState();
     recalcAllStoreTables();
@@ -1196,6 +1205,8 @@ function renderStorePanel(storeKey) {
   return panel;
 }
 
+const ROW_NON_NEGATIVE_FIELDS = new Set(["precoVenda", "recebido", "peso", "tempo", "gastoLevar", "insumos"]);
+
 function bindRowInputs(tr, row) {
   tr.querySelectorAll("input, select").forEach(el => {
     if (el.dataset.field === "data") {
@@ -1208,6 +1219,7 @@ function bindRowInputs(tr, row) {
     }
     const evt = el.type === "checkbox" ? "change" : "input";
     el.addEventListener(evt, () => {
+      if (ROW_NON_NEGATIVE_FIELDS.has(el.dataset.field)) clampNegativeInput(el);
       row[el.dataset.field] = el.value;
       saveState();
       updateRowCalcCells(tr, row);
@@ -1242,18 +1254,18 @@ function storeRow3D(storeKey, row) {
     <td><select data-field="impressora">${printerOptions}</select></td>
     <td><select data-field="filamentoId">${filamentOptions}</select></td>
     <td><select data-field="embalagemId">${buildPackagingOptions(row.embalagemId)}</select></td>
-    <td class="num"><input type="number" step="0.01" value="${row.precoVenda}" data-field="precoVenda"></td>
-    <td class="num"><input type="number" step="0.01" value="${row.recebido}" data-field="recebido"></td>
+    <td class="num"><input type="number" step="0.01" min="0" value="${row.precoVenda}" data-field="precoVenda"></td>
+    <td class="num"><input type="number" step="0.01" min="0" value="${row.recebido}" data-field="recebido"></td>
     <td class="num calc-cell" data-out="taxaRS">—</td>
     <td class="num calc-cell" data-out="taxaPct">—</td>
     <td><select data-field="taxaMETipo" title="Quem paga a taxa ME de 4%">${buildTaxaMEOptions(row.taxaMETipo)}</select></td>
     <td class="num calc-cell" data-out="custoTaxaME">—</td>
-    <td class="num"><input type="number" step="0.1" value="${row.peso}" data-field="peso"></td>
-    <td class="num"><input type="number" step="0.1" value="${row.tempo}" data-field="tempo"></td>
+    <td class="num"><input type="number" step="0.1" min="0" value="${row.peso}" data-field="peso"></td>
+    <td class="num"><input type="number" step="0.1" min="0" value="${row.tempo}" data-field="tempo"></td>
     <td class="num calc-cell" data-out="custoFilamento">—</td>
     <td class="num calc-cell" data-out="custoEnergia">—</td>
     <td class="num calc-cell" data-out="custoEmbalagem">—</td>
-    <td class="num"><input type="number" step="0.01" value="${row.gastoLevar}" data-field="gastoLevar"></td>
+    <td class="num"><input type="number" step="0.01" min="0" value="${row.gastoLevar}" data-field="gastoLevar"></td>
     <td class="num calc-cell" data-out="custoEtiqueta" title="Custo fixo de etiqueta + QR code">—</td>
     <td class="num calc-cell" data-out="custoTotal">—</td>
     <td class="num calc-cell" data-out="lucro">—</td>
@@ -1277,15 +1289,15 @@ function storeRowProduto(storeKey, row) {
     <td><input type="text" inputmode="numeric" class="date-input" maxlength="10" value="${formatDateBR(row.data)}" data-field="data" placeholder="dd/mm/aaaa"></td>
     <td><input type="text" value="${escapeAttr(row.numeroPedido || "")}" data-field="numeroPedido" placeholder="Nº do pedido"></td>
     <td><select data-field="embalagemId">${buildPackagingOptions(row.embalagemId)}</select></td>
-    <td class="num"><input type="number" step="0.01" value="${row.precoVenda}" data-field="precoVenda"></td>
-    <td class="num"><input type="number" step="0.01" value="${row.recebido}" data-field="recebido"></td>
+    <td class="num"><input type="number" step="0.01" min="0" value="${row.precoVenda}" data-field="precoVenda"></td>
+    <td class="num"><input type="number" step="0.01" min="0" value="${row.recebido}" data-field="recebido"></td>
     <td class="num calc-cell" data-out="taxaRS">—</td>
     <td class="num calc-cell" data-out="taxaPct">—</td>
     <td><select data-field="taxaMETipo" title="Quem paga a taxa ME de 4%">${buildTaxaMEOptions(row.taxaMETipo)}</select></td>
     <td class="num calc-cell" data-out="custoTaxaME">—</td>
-    <td class="num"><input type="number" step="0.01" value="${row.insumos}" data-field="insumos" title="Custo dos insumos usados (ex: pendrive, memory card)"></td>
+    <td class="num"><input type="number" step="0.01" min="0" value="${row.insumos}" data-field="insumos" title="Custo dos insumos usados (ex: pendrive, memory card)"></td>
     <td class="num calc-cell" data-out="custoEmbalagem">—</td>
-    <td class="num"><input type="number" step="0.01" value="${row.gastoLevar}" data-field="gastoLevar"></td>
+    <td class="num"><input type="number" step="0.01" min="0" value="${row.gastoLevar}" data-field="gastoLevar"></td>
     <td class="num calc-cell" data-out="custoEtiqueta" title="Custo fixo de etiqueta + QR code">—</td>
     <td class="num calc-cell" data-out="custoTotal">—</td>
     <td class="num calc-cell" data-out="lucro">—</td>
@@ -1464,10 +1476,13 @@ function renderPricingPanel() {
   return panel;
 }
 
+const PRICING_NON_NEGATIVE_FIELDS = new Set(["peso", "tempo", "gastoLevar", "insumos", "taxaPlataforma", "margemDesejada"]);
+
 function bindPricingRowInputs(tr, row) {
   tr.querySelectorAll("input, select").forEach(el => {
     const evt = el.type === "checkbox" ? "change" : "input";
     el.addEventListener(evt, () => {
+      if (PRICING_NON_NEGATIVE_FIELDS.has(el.dataset.field)) clampNegativeInput(el);
       row[el.dataset.field] = el.value;
       saveState();
       updatePricingRowCalcCells(tr, row);
@@ -1500,15 +1515,15 @@ function pricingRow3D(row) {
     <td><select data-field="impressora">${printerOptions}</select></td>
     <td><select data-field="filamentoId">${filamentOptions}</select></td>
     <td><select data-field="embalagemId">${buildPackagingOptions(row.embalagemId)}</select></td>
-    <td class="num"><input type="number" step="0.1" value="${row.peso}" data-field="peso"></td>
-    <td class="num"><input type="number" step="0.1" value="${row.tempo}" data-field="tempo"></td>
+    <td class="num"><input type="number" step="0.1" min="0" value="${row.peso}" data-field="peso"></td>
+    <td class="num"><input type="number" step="0.1" min="0" value="${row.tempo}" data-field="tempo"></td>
     <td class="num calc-cell" data-out="custoFilamento">—</td>
     <td class="num calc-cell" data-out="custoEnergia">—</td>
     <td class="num calc-cell" data-out="custoEmbalagem">—</td>
-    <td class="num"><input type="number" step="0.01" value="${row.gastoLevar}" data-field="gastoLevar"></td>
+    <td class="num"><input type="number" step="0.01" min="0" value="${row.gastoLevar}" data-field="gastoLevar"></td>
     <td><select data-field="taxaMETipo" title="Quem paga a taxa ME de 4%">${buildTaxaMEOptions(row.taxaMETipo)}</select></td>
-    <td class="num"><input type="number" step="1" value="${row.taxaPlataforma}" data-field="taxaPlataforma" placeholder="Ex: 40" title="Comissão média cobrada pela plataforma sobre o preço de venda"></td>
-    <td class="num"><input type="number" step="1" value="${row.margemDesejada}" data-field="margemDesejada" placeholder="Ex: 40"></td>
+    <td class="num"><input type="number" step="1" min="0" value="${row.taxaPlataforma}" data-field="taxaPlataforma" placeholder="Ex: 40" title="Comissão média cobrada pela plataforma sobre o preço de venda"></td>
+    <td class="num"><input type="number" step="1" min="0" value="${row.margemDesejada}" data-field="margemDesejada" placeholder="Ex: 40"></td>
     <td class="num calc-cell" data-out="custoTotal">—</td>
     <td class="num calc-cell" data-out="taxaPlataformaRS">—</td>
     <td class="num calc-cell price-highlight" data-out="precoSugerido">—</td>
@@ -1531,12 +1546,12 @@ function pricingRowProduto(row) {
   tr.innerHTML = `
     <td class="col-produto"><input type="text" value="${escapeAttr(row.produto)}" data-field="produto" placeholder="Nome do produto"></td>
     <td><select data-field="embalagemId">${buildPackagingOptions(row.embalagemId)}</select></td>
-    <td class="num"><input type="number" step="0.01" value="${row.insumos}" data-field="insumos" title="Custo dos insumos usados (ex: pendrive, memory card)"></td>
+    <td class="num"><input type="number" step="0.01" min="0" value="${row.insumos}" data-field="insumos" title="Custo dos insumos usados (ex: pendrive, memory card)"></td>
     <td class="num calc-cell" data-out="custoEmbalagem">—</td>
-    <td class="num"><input type="number" step="0.01" value="${row.gastoLevar}" data-field="gastoLevar"></td>
+    <td class="num"><input type="number" step="0.01" min="0" value="${row.gastoLevar}" data-field="gastoLevar"></td>
     <td><select data-field="taxaMETipo" title="Quem paga a taxa ME de 4%">${buildTaxaMEOptions(row.taxaMETipo)}</select></td>
-    <td class="num"><input type="number" step="1" value="${row.taxaPlataforma}" data-field="taxaPlataforma" placeholder="Ex: 40" title="Comissão média cobrada pela plataforma sobre o preço de venda"></td>
-    <td class="num"><input type="number" step="1" value="${row.margemDesejada}" data-field="margemDesejada" placeholder="Ex: 40"></td>
+    <td class="num"><input type="number" step="1" min="0" value="${row.taxaPlataforma}" data-field="taxaPlataforma" placeholder="Ex: 40" title="Comissão média cobrada pela plataforma sobre o preço de venda"></td>
+    <td class="num"><input type="number" step="1" min="0" value="${row.margemDesejada}" data-field="margemDesejada" placeholder="Ex: 40"></td>
     <td class="num calc-cell" data-out="custoTotal">—</td>
     <td class="num calc-cell" data-out="taxaPlataformaRS">—</td>
     <td class="num calc-cell price-highlight" data-out="precoSugerido">—</td>
@@ -1648,7 +1663,7 @@ function adsRow(a) {
 
   tr.innerHTML = `
     <td><select data-field="storeKey">${storeOptions}</select></td>
-    <td class="num"><input type="number" step="0.01" value="${a.valor}" data-field="valor"></td>
+    <td class="num"><input type="number" step="0.01" min="0" value="${a.valor}" data-field="valor"></td>
     <td><input type="text" inputmode="numeric" class="date-input" maxlength="10" value="${formatDateBR(a.data)}" data-field="data" placeholder="dd/mm/aaaa"></td>
     <td><button class="icon-btn" data-action="delete" title="Remover">✕</button></td>
   `;
@@ -1661,6 +1676,7 @@ function adsRow(a) {
 
   tr.querySelectorAll('[data-field]:not([data-field="data"])').forEach(el => {
     el.addEventListener("input", () => {
+      if (el.dataset.field === "valor") clampNegativeInput(el);
       a[el.dataset.field] = el.value;
       saveState();
     });
@@ -1747,7 +1763,7 @@ function custoFixoRow(c) {
   tr.innerHTML = `
     <td><input type="text" value="${escapeAttr(c.nome)}" data-field="nome" placeholder="Ex: Contadora"></td>
     <td><input type="text" inputmode="numeric" class="date-input" maxlength="10" value="${formatDateBR(c.data)}" data-field="data" placeholder="dd/mm/aaaa"></td>
-    <td class="num"><input type="number" step="0.01" value="${c.valor}" data-field="valor"></td>
+    <td class="num"><input type="number" step="0.01" min="0" value="${c.valor}" data-field="valor"></td>
     <td><input type="text" value="${escapeAttr(c.obs || "")}" data-field="obs" placeholder="opcional"></td>
     <td><button class="icon-btn" data-action="delete" title="Remover">✕</button></td>
   `;
@@ -1761,6 +1777,7 @@ function custoFixoRow(c) {
   tr.querySelectorAll('[data-field]:not([data-field="data"])').forEach(input => {
     input.addEventListener("input", () => {
       const field = input.dataset.field;
+      if (field === "valor") clampNegativeInput(input);
       c[field] = field === "valor" ? n(input.value) : input.value;
       saveState();
     });
@@ -1889,7 +1906,7 @@ function devolucaoRow(dev) {
     : `<span class="devolucao-subtipo-vazio">—</span>`;
 
   const valorDevolucaoCell = dev.subtipoDefeito === "danificado"
-    ? `<input type="number" step="0.01" value="${dev.valorDevolucao ?? DEFAULT_VALOR_DEVOLUCAO}" data-field="valorDevolucao" placeholder="Ex: 15,00">`
+    ? `<input type="number" step="0.01" min="0" value="${dev.valorDevolucao ?? DEFAULT_VALOR_DEVOLUCAO}" data-field="valorDevolucao" placeholder="Ex: 15,00">`
     : `<span class="devolucao-subtipo-vazio">—</span>`;
 
   tr.innerHTML = `
@@ -1932,6 +1949,7 @@ function devolucaoRow(dev) {
   tr.querySelectorAll('input[data-field]:not([data-field="data"]), select[data-field]:not([data-field="categoria"]):not([data-field="subtipoDefeito"])').forEach(el => {
     el.addEventListener("input", () => {
       const field = el.dataset.field;
+      if (field === "valorDevolucao") clampNegativeInput(el);
       dev[field] = el.value;
       saveState();
       updateDevolucaoRowCalcCells(tr, dev);
@@ -2982,6 +3000,21 @@ async function renderTicketThread(container, ticket, opts) {
   });
   thread.appendChild(bubbles);
 
+  // Ticket resolvido: usuário não digita mais nada aqui (evita reabrir sem querer — precisa
+  // abrir um ticket novo). O admin continua podendo responder mesmo depois de resolver.
+  const isClosed = (data.ticket && data.ticket.status) === "closed";
+  if (isClosed && !isAdmin) {
+    const note = document.createElement("p");
+    note.className = "auth-hint";
+    note.style.marginTop = "0";
+    note.textContent = "Esse ticket foi marcado como resolvido. Se precisar de mais alguma coisa, abra um novo ticket.";
+    thread.appendChild(note);
+    container.innerHTML = "";
+    container.appendChild(thread);
+    bubbles.scrollTop = bubbles.scrollHeight;
+    return;
+  }
+
   const form = document.createElement("form");
   form.className = "ticket-reply-form";
   form.innerHTML = `
@@ -3001,7 +3034,17 @@ async function renderTicketThread(container, ticket, opts) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ticketId: ticket.id, message }),
       });
-      if (!res.ok) throw new Error("HTTP " + res.status);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        if (errData.error === "ticket_closed") {
+          // O ticket foi resolvido entre o momento em que a tela abriu e o envio — recarrega
+          // a conversa pra mostrar o aviso em vez da caixa de resposta.
+          showToast(errData.message || "Esse ticket já foi resolvido.");
+          await renderTicketThread(container, ticket, opts);
+          return;
+        }
+        throw new Error("HTTP " + res.status);
+      }
       textarea.value = "";
       await renderTicketThread(container, ticket, opts);
       if (opts.onReply) opts.onReply();
@@ -3244,6 +3287,104 @@ function showToast(msg) {
   toastTimer = setTimeout(() => el.classList.remove("show"), 2400);
 }
 
+/* ===================== Suporte: notificação de novas mensagens em tickets ===================== */
+// Não temos WebSocket/push aqui (é tudo Netlify Functions sem servidor persistente), então a
+// "notificação em tempo real" é feita com polling: a cada 20s a gente confere se chegou
+// mensagem nova de "quem não é você" (admin checa mensagens do usuário, usuário checa
+// mensagens do admin) e, se sim, toca um som e mostra um aviso. O que já foi visto fica
+// guardado no localStorage pra sobreviver a um F5 e não tocar som pra conversa antiga.
+
+const TICKET_SEEN_KEY_PREFIX = "gl_ticket_seen_";
+
+function getTicketSeenAt(ticketId) {
+  try { return localStorage.getItem(TICKET_SEEN_KEY_PREFIX + ticketId); } catch (e) { return null; }
+}
+function setTicketSeenAt(ticketId, iso) {
+  try { localStorage.setItem(TICKET_SEEN_KEY_PREFIX + ticketId, iso); } catch (e) {}
+}
+
+// Bipe estilo MSN: dois tons curtos, gerados na hora (sem precisar de arquivo de áudio).
+function playNotificationSound() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const start = ctx.currentTime;
+    [[880, 0], [1318.5, 0.13]].forEach(([freq, delay]) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, start + delay);
+      gain.gain.exponentialRampToValueAtTime(0.28, start + delay + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + delay + 0.22);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(start + delay);
+      osc.stop(start + delay + 0.24);
+    });
+    setTimeout(() => ctx.close(), 500);
+  } catch (e) {
+    console.error("[notify] falha ao tocar som:", e);
+  }
+}
+
+let _ticketPollBusy = false;
+
+async function pollTicketNotifications(opts) {
+  opts = opts || {};
+  if (_ticketPollBusy) return;
+  _ticketPollBusy = true;
+  try {
+    const isAdmin = !!window.isAdmin;
+    const res = await fetch(isAdmin ? "/api/admin-tickets" : "/api/my-tickets");
+    if (!res.ok) return;
+    const data = await res.json();
+    const tickets = data.tickets || [];
+    const otherSender = isAdmin ? "user" : "admin";
+    const updated = [];
+
+    tickets.forEach(t => {
+      if (!t.last_message_at || t.last_message_sender !== otherSender) return;
+      const seen = getTicketSeenAt(t.id);
+      if (!seen) {
+        // Primeira vez que esse navegador vê esse ticket — marca como visto sem avisar,
+        // pra não disparar som por causa de conversa que já existia antes.
+        setTicketSeenAt(t.id, t.last_message_at);
+        return;
+      }
+      if (new Date(t.last_message_at) > new Date(seen)) {
+        updated.push(t);
+        setTicketSeenAt(t.id, t.last_message_at);
+      }
+    });
+
+    if (updated.length > 0) {
+      playNotificationSound();
+      if (isAdmin) {
+        showToast(updated.length === 1
+          ? `✉ Nova mensagem de ${updated[0].user_email} no ticket`
+          : `✉ Novas mensagens em ${updated.length} tickets`);
+      } else {
+        showToast("✉ O administrador respondeu seu ticket");
+      }
+      if (opts.onNewMessages) opts.onNewMessages(updated);
+    }
+  } catch (e) {
+    console.error("[notify] falha ao checar novas mensagens:", e);
+  } finally {
+    _ticketPollBusy = false;
+  }
+}
+
+let _ticketPollTimer = null;
+
+function startTicketNotifications(opts) {
+  if (_ticketPollTimer) clearInterval(_ticketPollTimer);
+  pollTicketNotifications(opts);
+  _ticketPollTimer = setInterval(() => pollTicketNotifications(opts), 20000);
+}
+
 /* ===================== Helpers ===================== */
 
 function escapeHtml(str) {
@@ -3317,6 +3458,13 @@ async function startApp() {
   renderAccountBadge();
   applySidebarState();
   if (!window.isAdmin) renderFloatingTicketButton();
+  startTicketNotifications({
+    onNewMessages: () => {
+      // Se a pessoa já está olhando a aba Tickets, atualiza a lista sozinha em vez de
+      // deixar ela descobrir só quando trocar de aba.
+      if (activeTab === "tickets") renderContent();
+    },
+  });
 }
 
 function renderAccountBadge() {

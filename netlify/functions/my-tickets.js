@@ -6,10 +6,12 @@ exports.handler = async (event) => {
   if (!session) return json(401, { error: "not_authenticated" });
 
   const rows = await sql`
-    select id, subject, status, created_at, closed_at
-    from tickets
-    where user_id = ${session.id}
-    order by (status = 'open') desc, created_at desc
+    select t.id, t.subject, t.status, t.created_at, t.closed_at,
+           (select max(created_at) from ticket_messages where ticket_id = t.id) as last_message_at,
+           (select sender from ticket_messages where ticket_id = t.id order by created_at desc limit 1) as last_message_sender
+    from tickets t
+    where t.user_id = ${session.id}
+    order by (t.status = 'open') desc, t.created_at desc
   `;
 
   return json(200, { tickets: rows });

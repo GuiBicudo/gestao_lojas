@@ -140,7 +140,37 @@ html, body {
   flex-direction: column;
   gap: 2px;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #3A424A transparent;
 }
+.nav::-webkit-scrollbar { width: 7px; }
+.nav::-webkit-scrollbar-track { background: transparent; }
+.nav::-webkit-scrollbar-thumb {
+  background: #3A424A;
+  border-radius: 10px;
+}
+.nav::-webkit-scrollbar-thumb:hover { background: #4A535C; }
+
+/* Mesmo estilo pra qualquer outra área com scroll dentro de fundo claro (tabelas, modais) */
+.table-wrap, .ticket-bubbles, .ticket-modal {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+.table-wrap::-webkit-scrollbar,
+.ticket-bubbles::-webkit-scrollbar,
+.ticket-modal::-webkit-scrollbar { width: 7px; height: 7px; }
+.table-wrap::-webkit-scrollbar-track,
+.ticket-bubbles::-webkit-scrollbar-track,
+.ticket-modal::-webkit-scrollbar-track { background: transparent; }
+.table-wrap::-webkit-scrollbar-thumb,
+.ticket-bubbles::-webkit-scrollbar-thumb,
+.ticket-modal::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 10px;
+}
+.table-wrap::-webkit-scrollbar-thumb:hover,
+.ticket-bubbles::-webkit-scrollbar-thumb:hover,
+.ticket-modal::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
 
 .nav-group-label {
   font-size: 10.5px;

@@ -25,15 +25,16 @@ exports.handler = async (event) => {
   const isAdmin = isOwnerEmail(session.email);
   if (!isAdmin && ticket.user_id !== session.id) return json(403, { error: "forbidden" });
 
+  // Ticket resolvido não aceita resposta do usuário — evita reabrir sozinho por engano.
+  // Se precisar de mais alguma coisa, é pra abrir um ticket novo. O admin continua podendo
+  // responder normalmente (pra deixar uma última nota, por exemplo).
+  if (!isAdmin && ticket.status === "closed") {
+    return json(403, { error: "ticket_closed", message: "Esse ticket já foi resolvido. Abra um novo ticket se precisar de mais alguma coisa." });
+  }
+
   const sender = isAdmin ? "admin" : "user";
 
   await sql`insert into ticket_messages (ticket_id, sender, message) values (${ticketId}, ${sender}, ${message})`;
-
-  // Se o próprio usuário responde num ticket que já tinha sido marcado como resolvido,
-  // reabre sozinho — ele está voltando a precisar de ajuda.
-  if (!isAdmin && ticket.status === "closed") {
-    await sql`update tickets set status = 'open', closed_at = null where id = ${ticketId}`;
-  }
 
   try {
     if (isAdmin) {

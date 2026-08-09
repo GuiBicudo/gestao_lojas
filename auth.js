@@ -217,6 +217,12 @@ async function renderBlockedGate(opts) {
 
   const area = authGate.querySelector("#blocked-ticket-area");
 
+  // Fica de olho em resposta nova do admin enquanto a pessoa está presa nessa tela —
+  // toca o som e recarrega a conversa sozinho, sem precisar dar F5.
+  if (typeof startTicketNotifications === "function") {
+    startTicketNotifications({ onNewMessages: () => renderBlockedGate() });
+  }
+
   // Se já existe um ticket aberto, mostra a conversa em vez de um formulário em branco —
   // assim dá pra continuar a mesma conversa em vez de abrir um ticket novo toda hora.
   let openTicket = null;
