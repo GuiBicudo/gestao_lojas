@@ -666,6 +666,7 @@ function renderNav() {
   nav.querySelectorAll(".nav-item").forEach(btn => {
     btn.addEventListener("click", () => {
       activeTab = btn.dataset.tab;
+      closeMobileNav(); // no celular, escolher uma aba já fecha o menu sozinho
       renderNav();
       renderContent();
     });
@@ -3548,6 +3549,37 @@ document.getElementById("btn-toggle-sidebar").addEventListener("click", () => {
   applySidebarState();
 });
 
+/* ===================== Menu mobile (hambúrguer) =====================
+   Em telas estreitas o menu lateral vira um "acordeão" fechado por padrão
+   embaixo da marca — abre/fecha com o botão ☰ e fecha sozinho ao escolher
+   uma aba, pra não ficar ocupando a tela depois de navegar. */
+
+let mobileNavOpen = false;
+
+function applyMobileNavState() {
+  const sidebar = document.getElementById("sidebar");
+  const btn = document.getElementById("btn-mobile-nav-toggle");
+  sidebar.classList.toggle("mobile-nav-open", mobileNavOpen);
+  if (btn) {
+    btn.textContent = mobileNavOpen ? "✕" : "☰";
+    btn.setAttribute("aria-label", mobileNavOpen ? "Fechar menu" : "Abrir menu");
+  }
+}
+
+function closeMobileNav() {
+  if (!mobileNavOpen) return;
+  mobileNavOpen = false;
+  applyMobileNavState();
+}
+
+const btnMobileNavToggle = document.getElementById("btn-mobile-nav-toggle");
+if (btnMobileNavToggle) {
+  btnMobileNavToggle.addEventListener("click", () => {
+    mobileNavOpen = !mobileNavOpen;
+    applyMobileNavState();
+  });
+}
+
 /* ===================== Tema claro/escuro ===================== */
 
 const THEME_KEY = "gestaoLojas3D_theme";
@@ -3590,6 +3622,7 @@ async function startApp() {
   renderBrand();
   renderAccountBadge();
   applySidebarState();
+  applyMobileNavState();
   if (!window.isAdmin) renderFloatingTicketButton();
   startTicketNotifications({
     onNewMessages: () => {

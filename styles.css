@@ -110,6 +110,25 @@ html, body {
 .collapse-toggle:hover { background: #1D2329; }
 .sidebar.collapsed .collapse-toggle { margin-left: 0; }
 
+/* botão de menu hambúrguer — só existe visualmente abaixo de 880px (ver media query) */
+.mobile-nav-toggle {
+  display: none;
+  margin-left: auto;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  border: 1px solid var(--sidebar-line);
+  background: transparent;
+  color: var(--sidebar-ink);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+}
+.mobile-nav-toggle:hover { background: #1D2329; }
+
 .brand-mark {
   font-size: 22px;
   color: var(--accent);
@@ -1170,14 +1189,102 @@ input[data-field="peso"], input[data-field="tempo"] { width: auto; min-width: 76
 
 @media (max-width: 880px) {
   .app { flex-direction: column; }
-  .sidebar, .sidebar.collapsed { width: 100%; height: auto; position: relative; flex-direction: row; flex-wrap: wrap; }
-  .brand { border-bottom: none; padding: 16px; width: 100%; }
+
+  /* Sidebar vira uma barra fixa no topo com "acordeão": fechada por padrão, abre com o ☰ */
+  .sidebar, .sidebar.collapsed {
+    width: 100%;
+    height: auto;
+    position: sticky;
+    top: 0;
+    z-index: 45;
+    flex-direction: column;
+    flex-wrap: nowrap;
+  }
+  .brand { border-bottom: none; padding: 14px 16px; width: 100%; }
   .collapse-toggle { display: none; }
+  .mobile-nav-toggle { display: flex; }
+  /* zera o efeito "menu recolhido, só ícone" do desktop — no celular o menu mobile sempre
+     mostra os textos, mesmo se a pessoa tiver deixado o menu recolhido num acesso pelo PC */
   .sidebar.collapsed .brand-text { display: flex; }
+  .sidebar.collapsed .nav-group-label { display: block; }
   .sidebar.collapsed .nav-label,
   .sidebar.collapsed .btn-label { display: inline; }
-  .nav { flex-direction: row; flex-wrap: wrap; padding: 8px 12px; }
-  .sidebar-footer { width: 100%; flex-direction: row; flex-wrap: wrap; }
-  .sidebar-footer .hint { display: none; }
-  .content { padding: 20px 16px 48px; }
+  .sidebar.collapsed .sidebar-footer .hint { display: block; }
+  .sidebar.collapsed .nav { padding: 6px 12px 10px; }
+  .sidebar.collapsed .nav-item { justify-content: flex-start; padding: 9px 10px; }
+  .sidebar.collapsed .sidebar-footer { padding: 14px 16px 18px; }
+  .sidebar.collapsed .ghost-btn { padding: 8px 14px; }
+
+  /* Menu e rodapé ficam escondidos até o ☰ ser tocado */
+  .nav, .sidebar-footer { display: none; }
+  .sidebar.mobile-nav-open .nav,
+  .sidebar.mobile-nav-open .sidebar-footer { display: flex; }
+
+  .nav {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    padding: 6px 12px 10px;
+    max-height: 55vh;
+    overflow-y: auto;
+    border-top: 1px solid var(--sidebar-line);
+  }
+
+  .sidebar-footer {
+    width: 100%;
+    flex-direction: column;
+    flex-wrap: nowrap;
+  }
+  .sidebar-footer .hint { display: block; }
+  #current-user-hint.hint { display: flex; }
+
+  .content { padding: 18px 14px 90px; }
+
+  .panel { padding: 18px 16px 16px; margin-bottom: 18px; }
+
+  h1.store-title, h1.page-title { font-size: 18px; }
+  .panel-sub { font-size: 12.5px; }
+
+  /* Cabeçalhos de painel: título e ações empilham, e as próprias ações quebram linha
+     em vez de espremer botão/select/busca numa linha só (era o pior ponto no celular) */
+  .panel-header { flex-direction: column; align-items: stretch; gap: 12px; }
+  .panel-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .panel-actions .primary-btn,
+  .panel-actions .ghost-btn { flex: 1 1 auto; }
+  .panel-actions select,
+  .panel-actions .search-input {
+    flex: 1 1 140px;
+    min-width: 0;
+    width: 100%;
+  }
+
+  /* Grids de cards (Resumo, Parâmetros) viram uma coluna só */
+  .summary-grid, .param-grid { grid-template-columns: 1fr; }
+
+  .pie-wrap { justify-content: center; text-align: center; }
+  .pie-legend-label { min-width: 0; }
+
+  .bar-row { grid-template-columns: 64px 1fr auto; gap: 8px; font-size: 12px; }
+
+  /* Botão flutuante de suporte e toast: encolhem um pouco e o toast sobe pra não
+     ficar embaixo do botão flutuante no canto inferior direito */
+  .floating-ticket-btn { right: 16px; bottom: 16px; width: 48px; height: 48px; font-size: 20px; }
+  .toast { left: 16px; right: 16px; bottom: 84px; text-align: center; }
+
+  .ticket-modal-backdrop { padding: 12px; }
+  .ticket-modal { padding: 16px; max-height: 90vh; }
+
+  .ticket-reply-form { flex-direction: column; align-items: stretch; }
+  .ticket-reply-form .primary-btn,
+  .ticket-reply-form .ghost-btn { width: 100%; }
+
+  .auth-card { padding: 26px 20px; }
+}
+
+@media (max-width: 420px) {
+  table.data-table { font-size: 12px; }
+  .summary-card .value { font-size: 19px; }
+  .profile-icon-actions { flex-wrap: wrap; }
 }
