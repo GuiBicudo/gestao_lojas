@@ -2566,7 +2566,7 @@ function renderAprovacoesPanel() {
     try {
       const res = await fetch("/api/admin-pending");
       if (!res.ok) throw new Error("HTTP " + res.status);
-      const { users } = await res.json();
+      const { pending: users } = await res.json();
       if (!users || users.length === 0) {
         body.innerHTML = `<div class="empty-state">Nenhum cadastro pendente no momento.</div>`;
         return;
