@@ -34,6 +34,10 @@ exports.handler = async (event) => {
     `;
   } else if (action === "clear_trial") {
     await sql`update users set trial_ends_at = null where id = ${userId}`;
+  } else if (action === "expire_trial") {
+    // Força o trial pro passado agora mesmo — útil pra testar o bloqueio das abas sem
+    // esperar dias de verdade passarem.
+    await sql`update users set trial_ends_at = now() - interval '1 minute' where id = ${userId}`;
   } else {
     return json(400, { error: "Ação inválida." });
   }

@@ -596,6 +596,7 @@ function renderNav() {
     items.push(navGroupLabel("Administração"));
     items.push(navItem("aprovacoes", "Aprovações", "✓"));
     items.push(navItem("usuarios", "Usuários", "◈"));
+    items.push(navItem("tickets", "Tickets", "✉"));
   }
 
   nav.innerHTML = items.join("");
@@ -647,6 +648,7 @@ function renderContent() {
   else if (activeTab === "perfil") content.appendChild(renderPerfilPanel());
   else if (activeTab === "aprovacoes") content.appendChild(renderAprovacoesPanel());
   else if (activeTab === "usuarios") content.appendChild(renderUsuariosPanel());
+  else if (activeTab === "tickets") content.appendChild(renderTicketsPanel());
   else content.appendChild(renderStorePanel(activeTab));
 }
 
@@ -2594,7 +2596,7 @@ function renderAprovacoesPanel() {
         tr.innerHTML = `
           <td>${escapeHtml(u.email)}</td>
           <td>${data}</td>
-          <td>
+          <td class="row-actions">
             <button class="primary-btn small" data-action="approve" data-id="${u.id}">Aprovar</button>
             <button class="ghost-btn small" data-action="reject" data-id="${u.id}">Rejeitar</button>
           </td>
@@ -2738,7 +2740,7 @@ function renderUsuariosPanel() {
           <td>${statusLabel(u)}</td>
           <td>${fmtData(u.created_at)}</td>
           <td>${fmtData(u.trial_ends_at)}</td>
-          <td class="usuarios-actions"></td>
+          <td class="usuarios-actions row-actions"></td>
         `;
 
         const actionsCell = tr.querySelector(".usuarios-actions");
@@ -2754,6 +2756,16 @@ function renderUsuariosPanel() {
           btn30.textContent = "+30 dias trial";
           btn30.addEventListener("click", () => runAction(btn30, u.id, "extend_trial", { days: 30 }));
           actionsCell.appendChild(btn30);
+
+          const btnExpire = document.createElement("button");
+          btnExpire.className = "ghost-btn small";
+          btnExpire.textContent = "Expirar trial agora";
+          btnExpire.title = "Força o trial pro passado — útil pra testar o bloqueio das abas";
+          btnExpire.addEventListener("click", () => {
+            if (!confirm("Expirar o trial desse usuário agora? As abas dele ficam travadas imediatamente.")) return;
+            runAction(btnExpire, u.id, "expire_trial");
+          });
+          actionsCell.appendChild(btnExpire);
 
           const btnClear = document.createElement("button");
           btnClear.className = "ghost-btn small";
@@ -2789,6 +2801,156 @@ function renderUsuariosPanel() {
 
   load();
   return panel;
+}
+
+function renderTicketsPanel() {
+  const panel = document.createElement("section");
+  panel.className = "panel";
+  panel.innerHTML = `
+    <header class="panel-header">
+      <div>
+        <h1 class="page-title">Tickets</h1>
+        <p class="panel-sub">Mensagens enviadas por usuários bloqueados ou pelo botão de suporte.</p>
+      </div>
+    </header>
+    <div id="tickets-body"><div class="empty-state">Carregando...</div></div>
+  `;
+
+  const body = panel.querySelector("#tickets-body");
+
+  function fmtData(v) {
+    return v ? new Date(v).toLocaleString("pt-BR") : "—";
+  }
+
+  async function load() {
+    body.innerHTML = `<div class="empty-state">Carregando...</div>`;
+    try {
+      const res = await fetch("/api/admin-tickets");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const { tickets } = await res.json();
+      if (!tickets || tickets.length === 0) {
+        body.innerHTML = `<div class="empty-state">Nenhum ticket enviado ainda.</div>`;
+        return;
+      }
+
+      const list = document.createElement("div");
+      list.className = "tickets-list";
+
+      tickets.forEach(t => {
+        const card = document.createElement("div");
+        card.className = "ticket-card" + (t.status === "closed" ? " closed" : "");
+        card.innerHTML = `
+          <div class="ticket-card-header">
+            <div>
+              <strong>${escapeHtml(t.user_email)}</strong>
+              <span class="ticket-status ${t.status}">${t.status === "open" ? "Aberto" : "Resolvido"}</span>
+            </div>
+            <span class="ticket-date">${fmtData(t.created_at)}</span>
+          </div>
+          ${t.subject ? `<p class="ticket-subject">${escapeHtml(t.subject)}</p>` : ""}
+          <p class="ticket-message">${escapeHtml(t.message)}</p>
+          <div class="row-actions"></div>
+        `;
+
+        const actions = card.querySelector(".row-actions");
+        const btn = document.createElement("button");
+        btn.className = "ghost-btn small";
+        btn.textContent = t.status === "open" ? "Marcar como resolvido" : "Reabrir";
+        btn.addEventListener("click", async () => {
+          btn.disabled = true;
+          try {
+            const res = await fetch("/api/admin-ticket-action", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ticketId: t.id, action: t.status === "open" ? "close" : "reopen" }),
+            });
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            load();
+          } catch (e) {
+            console.error(e);
+            showToast("⚠ Não foi possível concluir a ação.");
+            btn.disabled = false;
+          }
+        });
+        actions.appendChild(btn);
+
+        list.appendChild(card);
+      });
+
+      body.innerHTML = "";
+      body.appendChild(list);
+    } catch (e) {
+      console.error(e);
+      body.innerHTML = `<div class="empty-state">Não foi possível carregar os tickets agora.</div>`;
+    }
+  }
+
+  load();
+  return panel;
+}
+
+/* ===================== Suporte: botão flutuante de ticket ===================== */
+
+function renderFloatingTicketButton() {
+  if (document.getElementById("floating-ticket-btn")) return;
+
+  const btn = document.createElement("button");
+  btn.id = "floating-ticket-btn";
+  btn.className = "floating-ticket-btn";
+  btn.title = "Falar com o suporte";
+  btn.textContent = "💬";
+  btn.addEventListener("click", () => openTicketModal());
+  document.body.appendChild(btn);
+}
+
+function openTicketModal() {
+  if (document.getElementById("ticket-modal-backdrop")) return;
+
+  const backdrop = document.createElement("div");
+  backdrop.id = "ticket-modal-backdrop";
+  backdrop.className = "ticket-modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="ticket-modal">
+      <h3>Falar com o suporte</h3>
+      <form id="ticket-modal-form" class="auth-form">
+        <label>Assunto (opcional)<input type="text" id="ticket-modal-subject" maxlength="200"></label>
+        <label>Mensagem<textarea id="ticket-modal-message" required rows="4" style="width:100%; font-family:inherit; padding:8px; border-radius:8px;"></textarea></label>
+        <div class="row-actions" style="justify-content:flex-end;">
+          <button type="button" class="ghost-btn small" id="ticket-modal-cancel">Cancelar</button>
+          <button type="submit" class="primary-btn small" id="ticket-modal-submit">Enviar</button>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+
+  const close = () => backdrop.remove();
+  backdrop.addEventListener("click", e => { if (e.target === backdrop) close(); });
+  backdrop.querySelector("#ticket-modal-cancel").addEventListener("click", close);
+
+  backdrop.querySelector("#ticket-modal-form").addEventListener("submit", async e => {
+    e.preventDefault();
+    const subject = backdrop.querySelector("#ticket-modal-subject").value.trim();
+    const message = backdrop.querySelector("#ticket-modal-message").value.trim();
+    const submitBtn = backdrop.querySelector("#ticket-modal-submit");
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Enviando...";
+    try {
+      const res = await fetch("/api/create-ticket", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subject, message }),
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      close();
+      showToast("Ticket enviado! O administrador vai analisar em breve.");
+    } catch (err) {
+      console.error(err);
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Enviar";
+      showToast("⚠ Não foi possível enviar o ticket agora.");
+    }
+  });
 }
 
 /* ===================== Export / Import ===================== */
@@ -2967,6 +3129,7 @@ async function startApp() {
   renderBrand();
   renderAccountBadge();
   applySidebarState();
+  if (!window.isAdmin) renderFloatingTicketButton();
 }
 
 function renderAccountBadge() {

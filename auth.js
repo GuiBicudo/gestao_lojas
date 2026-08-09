@@ -187,6 +187,54 @@ function renderResetForm(token, opts) {
   });
 }
 
+/* ---------- Tela de conta bloqueada (com formulário de ticket) ---------- */
+
+function renderBlockedGate(opts) {
+  opts = opts || {};
+
+  authGate.innerHTML = `
+    <div class="auth-card">
+      <div class="auth-brand">
+        <span class="brand-mark">◇</span>
+        <strong>Gestão de Lojas</strong>
+      </div>
+
+      <p class="auth-hint" style="margin-top:0;">🔒 Seu acesso foi bloqueado pelo administrador.</p>
+      <p class="auth-hint">Se acha que isso é um engano, explique o que aconteceu abaixo — sua mensagem vai direto pro administrador.</p>
+
+      ${opts.notice ? `<div class="auth-notice ${opts.noticeType || ""}">${opts.notice}</div>` : ""}
+
+      <form id="blocked-ticket-form" class="auth-form">
+        <label>Assunto (opcional)<input type="text" id="blocked-ticket-subject" maxlength="200"></label>
+        <label>Mensagem<textarea id="blocked-ticket-message" required rows="4" style="width:100%; font-family:inherit; padding:8px; border-radius:8px;"></textarea></label>
+        <button type="submit" class="primary-btn" id="blocked-ticket-submit">Enviar ticket</button>
+      </form>
+      <p class="auth-hint"><a href="#" id="blocked-logout-link">Sair</a></p>
+    </div>
+  `;
+
+  authGate.querySelector("#blocked-logout-link").addEventListener("click", async e => {
+    e.preventDefault();
+    try { await apiPost("/api/logout"); } catch (err) {}
+    window.location.reload();
+  });
+
+  authGate.querySelector("#blocked-ticket-form").addEventListener("submit", async e => {
+    e.preventDefault();
+    const subject = authGate.querySelector("#blocked-ticket-subject").value.trim();
+    const message = authGate.querySelector("#blocked-ticket-message").value.trim();
+    const submitBtn = authGate.querySelector("#blocked-ticket-submit");
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Enviando...";
+    const { ok } = await apiPost("/api/create-ticket", { subject, message });
+    if (ok) {
+      renderBlockedGate({ notice: "Ticket enviado! O administrador vai analisar e entrar em contato.", noticeType: "good" });
+    } else {
+      renderBlockedGate({ notice: "Não foi possível enviar o ticket agora. Tente de novo em instantes.", noticeType: "bad" });
+    }
+  });
+}
+
 // tira o ?reset=... da URL depois de usado, sem recarregar a página
 function clearResetParam() {
   const url = new URL(window.location.href);
@@ -218,6 +266,12 @@ async function boot() {
 
   if (!me || !me.authenticated) {
     renderAuthGate("login");
+    return;
+  }
+
+  if (me.blocked) {
+    showAuthGate();
+    renderBlockedGate();
     return;
   }
 

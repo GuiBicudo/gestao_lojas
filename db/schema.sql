@@ -35,5 +35,29 @@ create table if not exists password_reset_tokens (
   created_at timestamptz not null default now()
 );
 
+create table if not exists tickets (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references users(id) on delete cascade,
+  subject text,
+  message text not null,
+  status text not null default 'open' check (status in ('open', 'closed')),
+  created_at timestamptz not null default now(),
+  closed_at timestamptz
+);
+
 create index if not exists idx_users_status on users(status);
 create index if not exists idx_reset_tokens_hash on password_reset_tokens(token_hash);
+create index if not exists idx_tickets_status on tickets(status);
+
+-- Se o banco já existia antes dessa tabela, rode só isso (o create table if not exists
+-- acima já cobre bancos novos):
+-- create table if not exists tickets (
+--   id uuid primary key default gen_random_uuid(),
+--   user_id uuid not null references users(id) on delete cascade,
+--   subject text,
+--   message text not null,
+--   status text not null default 'open' check (status in ('open', 'closed')),
+--   created_at timestamptz not null default now(),
+--   closed_at timestamptz
+-- );
+-- create index if not exists idx_tickets_status on tickets(status);

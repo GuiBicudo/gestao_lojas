@@ -34,15 +34,9 @@ exports.handler = async (event) => {
     return json(403, { error: "rejected", message: "Seu cadastro não foi aprovado." });
   }
 
-  const isOwner = isOwnerEmail(user.email);
-
-  if (!isOwner && user.blocked_at) {
-    return json(403, { error: "blocked", message: "Seu acesso foi bloqueado. Entre em contato com o administrador." });
-  }
-
-  // Trial vencido NÃO impede o login — a pessoa consegue entrar normalmente, mas as áreas
-  // pagas ficam travadas dentro do app (ver /api/me e a checagem de acesso no front-end).
-  // Isso permite mostrar um convite pra virar premium em vez de simplesmente barrar a porta.
+  // Nem conta bloqueada nem trial vencido impedem o login — a pessoa consegue entrar
+  // normalmente, e é o /api/me + o front-end que decidem o que ela vê: tela de "bloqueado"
+  // com formulário de ticket, ou abas travadas com convite pra virar premium.
 
   const setCookie = signSessionCookie({ id: user.id, email: user.email });
   return json(200, { ok: true }, { "Set-Cookie": setCookie });
