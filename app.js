@@ -3567,12 +3567,41 @@ async function pollTicketNotifications(opts) {
 }
 
 let _ticketPollTimer = null;
+let _ticketPollOpts = null;
+
+// 60s em vez de 20s: pra notificação de ticket (que não é chat em tempo real) não faz
+// diferença perceptível, mas gera um terço das chamadas às Netlify Functions.
+const TICKET_POLL_INTERVAL_MS = 60000;
 
 function startTicketNotifications(opts) {
+  _ticketPollOpts = opts || {};
   if (_ticketPollTimer) clearInterval(_ticketPollTimer);
-  pollTicketNotifications(opts);
-  _ticketPollTimer = setInterval(() => pollTicketNotifications(opts), 20000);
+  pollTicketNotifications(_ticketPollOpts);
+  if (!document.hidden) {
+    _ticketPollTimer = setInterval(() => pollTicketNotifications(_ticketPollOpts), TICKET_POLL_INTERVAL_MS);
+  }
 }
+
+// Com a aba em segundo plano (pessoa trocou de aba, minimizou, etc.) não tem por que
+// continuar batendo no banco de minuto em minuto — é isso que mantém o banco "acordado"
+// sem necessidade e pesa na fatura do Neon (que dorme sozinho depois de alguns minutos
+// sem nenhuma consulta). Pausa o polling nesse caso e retoma — com uma checagem imediata,
+// pra não perder nada que tenha chegado enquanto a aba estava escondida — quando a pessoa
+// volta a olhar pra aba.
+document.addEventListener("visibilitychange", () => {
+  if (!_ticketPollOpts) return; // notificações ainda não foram iniciadas (ex: tela de login)
+  if (document.hidden) {
+    if (_ticketPollTimer) {
+      clearInterval(_ticketPollTimer);
+      _ticketPollTimer = null;
+    }
+  } else {
+    pollTicketNotifications(_ticketPollOpts);
+    if (!_ticketPollTimer) {
+      _ticketPollTimer = setInterval(() => pollTicketNotifications(_ticketPollOpts), TICKET_POLL_INTERVAL_MS);
+    }
+  }
+});
 
 /* ===================== Helpers ===================== */
 
