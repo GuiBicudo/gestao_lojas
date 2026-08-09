@@ -1,14 +1,25 @@
 /* ===================== Configuração ===================== */
 
-const STORAGE_KEY = "gestaoLojas3D_v1";
-
 const STORE_META = [
   { key: "shopee", label: "Shopee", color: "#EE4D2D" },
   { key: "ml", label: "Mercado Livre", color: "#FFC400" },
   { key: "tiktok", label: "TikTok Shop", color: "#111111" },
 ];
 
-const PRINTERS = ["A1", "A1 mini"];
+// sugestões de nome ao cadastrar uma impressora na aba Impressoras — não limita o campo,
+// é só um dropdown de apoio (datalist); a pessoa pode digitar qualquer nome
+const PRINTER_SUGESTOES = [
+  "Bambu Lab A1", "Bambu Lab A1 mini", "Bambu Lab P1S", "Bambu Lab P1P",
+  "Bambu Lab X1 Carbon", "Bambu Lab X1E", "Bambu Lab H2D",
+  "Creality Ender 3 V3", "Creality Ender 3 V3 SE", "Creality Ender 3 V3 KE",
+  "Creality K1", "Creality K1 Max", "Creality K1C", "Creality K2 Plus",
+  "Prusa MK4", "Prusa MK4S", "Prusa MINI+", "Prusa XL", "Prusa Core One",
+  "Anycubic Kobra 3", "Anycubic Kobra 2 Pro", "Anycubic Photon Mono M5s",
+  "Elegoo Neptune 4 Pro", "Elegoo Neptune 4 Max", "Elegoo Saturn 4 Ultra",
+  "Qidi Tech X-Max 3", "Qidi Tech Plus4", "Voron 2.4", "Voron 0.2",
+  "Sovol SV07", "Flashforge Adventurer 5M Pro", "Snapmaker J1",
+  "Ultimaker S5", "Artillery Sidewinder X3",
+];
 const TIPO_3D = "Impressão 3D";
 const TIPO_REVENDA = "Revenda";
 
@@ -48,6 +59,8 @@ function uid() {
 function defaultState() {
   const fil1 = uid(), fil2 = uid(), fil3 = uid();
   const packA = uid(), packB = uid();
+  const PRINTER_A1 = "Bambu Lab A1", PRINTER_A1_MINI = "Bambu Lab A1 mini";
+  const printer1 = uid(), printer2 = uid();
   const exampleProduct3D = (impressora, filamentoId, data, numeroPedido) => ({
     id: uid(),
     example: true,
@@ -91,9 +104,11 @@ function defaultState() {
       { id: packA, nome: "Caixa de Papelão P", preco: 40.0, quantidade: 20, obs: "exemplo — edite ou apague" },
       { id: packB, nome: "Envelope Plástico Rígido", preco: 30.0, quantidade: 10, obs: "exemplo — edite ou apague" },
     ],
+    printers: [
+      { id: printer1, nome: PRINTER_A1, potencia: 120, obs: "exemplo — edite ou apague" },
+      { id: printer2, nome: PRINTER_A1_MINI, potencia: 70, obs: "exemplo — edite ou apague" },
+    ],
     params: {
-      potA1: 120,
-      potA1Mini: 70,
       tarifa: 0.7894,
     },
     profile: {
@@ -101,14 +116,14 @@ function defaultState() {
       icone: null,
     },
     stores: {
-      shopee: [exampleProduct3D("A1", fil1, "2026-06-15", "SHP-100234"), exampleProdutoRevenda("2026-06-20", "SHP-100311")],
-      ml: [exampleProduct3D("A1 mini", fil2, "2026-07-10", "ML-582910"), exampleProdutoRevenda("2026-07-18", "ML-583067")],
-      tiktok: [exampleProduct3D("A1", fil3, "2026-08-05", "TT-004821"), exampleProdutoRevenda("2026-08-06", "TT-004835")],
+      shopee: [exampleProduct3D(PRINTER_A1, fil1, "2026-06-15", "SHP-100234"), exampleProdutoRevenda("2026-06-20", "SHP-100311")],
+      ml: [exampleProduct3D(PRINTER_A1_MINI, fil2, "2026-07-10", "ML-582910"), exampleProdutoRevenda("2026-07-18", "ML-583067")],
+      tiktok: [exampleProduct3D(PRINTER_A1, fil3, "2026-08-05", "TT-004821"), exampleProdutoRevenda("2026-08-06", "TT-004835")],
     },
     pricing: {
       threeD: [{
         id: uid(), example: true, produto: "(exemplo) Chaveiro Personalizado",
-        impressora: "A1 mini", filamentoId: fil2, peso: 15, tempo: 0.8,
+        impressora: PRINTER_A1_MINI, filamentoId: fil2, peso: 15, tempo: 0.8,
         embalagemId: packA, gastoLevar: 0.3, taxaMETipo: "nenhum", taxaPlataforma: 40, margemDesejada: 45,
       }],
       produtos: [{
@@ -124,7 +139,7 @@ function defaultState() {
       { id: uid(), example: true, storeKey: "shopee", valor: 35.0, data: "2026-06-10" },
     ],
     custosFixos: [
-      { id: uid(), example: true, nome: "Contadora", valor: 150.0, obs: "exemplo — edite ou apague" },
+      { id: uid(), example: true, nome: "Contadora", valor: 150.0, data: "2026-08-01", obs: "exemplo — edite ou apague" },
     ],
   };
 }
@@ -163,6 +178,32 @@ function normalizeState(parsed) {
     if (f.pesoPeca === undefined) f.pesoPeca = PESO_PADRAO_PECA;
   });
 
+  // impressoras antigas: até então era um seletor fixo (A1 / A1 mini) — vira uma aba de
+  // cadastro de verdade. Contas antigas ganham automaticamente um catálogo com os nomes e
+  // potências que já estavam salvos em params.potA1/potA1Mini (ou os valores padrão).
+  if (!parsed.printers) {
+    const potA1 = parsed.params && parsed.params.potA1 !== undefined ? parsed.params.potA1 : 120;
+    const potA1Mini = parsed.params && parsed.params.potA1Mini !== undefined ? parsed.params.potA1Mini : 70;
+    parsed.printers = [
+      { id: uid(), nome: "Bambu Lab A1", potencia: potA1, obs: "" },
+      { id: uid(), nome: "Bambu Lab A1 mini", potencia: potA1Mini, obs: "" },
+    ];
+  }
+  // renomeia seleções antigas ("A1" / "A1 mini", do seletor fixo) para os nomes completos
+  // usados no novo catálogo, pra não perder a referência de qual impressora foi usada
+  const renamePrinter = row => {
+    if (row.impressora === "A1") row.impressora = "Bambu Lab A1";
+    else if (row.impressora === "A1 mini") row.impressora = "Bambu Lab A1 mini";
+  };
+  STORE_META.forEach(s => parsed.stores[s.key].forEach(renamePrinter));
+  parsed.pricing.threeD.forEach(renamePrinter);
+
+  // custos fixos antigos podem não ter data cadastrada ainda — sem data eles não entravam
+  // no cálculo de lucro/prejuízo dos KPIs, então damos um valor inicial (hoje)
+  parsed.custosFixos.forEach(c => {
+    if (!c.data) c.data = new Date().toISOString().slice(0, 10);
+  });
+
   return parsed;
 }
 
@@ -175,6 +216,16 @@ function adsGastoFiltered({ store, year, month } = {}) {
     .filter(a => !year || a.data.slice(0, 4) === year)
     .filter(a => !month || a.data.slice(0, 7) === month)
     .reduce((s, a) => s + n(a.valor), 0);
+}
+
+// soma o que foi gasto em custos fixos, com filtros opcionais de ano/mês (usado nos KPIs
+// para que esse gasto conte no lucro/prejuízo do período). Custo fixo não é por loja.
+function custosFixosGastoFiltered({ year, month } = {}) {
+  return state.custosFixos
+    .filter(c => c.data)
+    .filter(c => !year || c.data.slice(0, 4) === year)
+    .filter(c => !month || c.data.slice(0, 7) === month)
+    .reduce((s, c) => s + n(c.valor), 0);
 }
 
 // procura, em todas as lojas (3D e Produtos), o pedido com esse número
@@ -238,97 +289,42 @@ function saveState() {
   });
 }
 
-/* ===================== Banco de dados local (IndexedDB) =====================
-   Antes os dados ficavam só numa string no localStorage. Agora usamos o IndexedDB,
-   que é um banco de dados de verdade dentro do navegador: transacional, com muito
-   mais espaço de armazenamento e mais confiável para guardar tudo isso a longo prazo.
-   Continua 100% local (sem servidor) e continua funcionando no GitHub Pages.
-   Essa camada foi isolada de propósito: quando virarmos isso num app instalável,
-   é aqui (e só aqui) que trocaríamos IndexedDB por SQLite, sem mexer no resto do código. */
+/* ===================== Banco de dados (Neon, via Netlify Functions) =====================
+   Os dados não ficam mais só no navegador: cada usuário aprovado tem seu próprio estado
+   salvo no Postgres (Neon), lido/gravado através das Functions em /api/state-get e
+   /api/state-save (veja netlify/functions/). O cookie de sessão (httpOnly) já identifica
+   quem está logado — essas chamadas não precisam mandar usuário/senha de novo.
+   Essa camada continua isolada de propósito: só ela sabe "onde" os dados moram; o resto
+   do app só chama saveState() e dbLoadState(), sem se importar com o transporte. */
 
-const DB_NAME = "gestaoLojas3D";
-const DB_VERSION = 1;
-const DB_STORE = "state";
-const DB_KEY = "app";
+// evita disparar uma requisição a cada tecla digitada: só salva de verdade 700ms depois
+// da última mudança (e sempre a versão mais recente do estado, mesmo que dispare várias vezes)
+const STATE_SAVE_DEBOUNCE_MS = 700;
+let saveDebounceTimer = null;
 
-let dbPromise = null;
-
-function openDatabase() {
-  if (!("indexedDB" in window)) return Promise.reject(new Error("IndexedDB não suportado neste navegador."));
-  if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      req.result.createObjectStore(DB_STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-  return dbPromise;
-}
-
-function idbGet(db, key) {
+function dbSaveState(value) {
+  if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(DB_STORE, "readonly");
-    const req = tx.objectStore(DB_STORE).get(key);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    saveDebounceTimer = setTimeout(() => {
+      fetch("/api/state-save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: value }),
+      })
+        .then(res => {
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          resolve();
+        })
+        .catch(reject);
+    }, STATE_SAVE_DEBOUNCE_MS);
   });
 }
 
-function idbPut(db, key, value) {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(DB_STORE, "readwrite");
-    tx.objectStore(DB_STORE).put(value, key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-// Migra dados antigos salvos em localStorage (versões anteriores do site) para o
-// IndexedDB, na primeira vez que o app abrir com o banco novo. Não apaga o backup
-// antigo do localStorage — ele só deixa de ser usado.
-function migrateFromLocalStorage() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return normalizeState(JSON.parse(raw));
-  } catch (e) {
-    console.error("Não foi possível ler dados antigos do localStorage.", e);
-    return null;
-  }
-}
-
-async function dbSaveState(value) {
-  try {
-    const db = await openDatabase();
-    await idbPut(db, DB_KEY, value);
-  } catch (e) {
-    // navegador sem suporte a IndexedDB (ou bloqueado) — usa localStorage como plano B
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
-  }
-}
-
-// Carrega o estado salvo: tenta o IndexedDB primeiro; se não houver nada lá,
-// tenta migrar do localStorage antigo; se não houver suporte a IndexedDB
-// (navegador muito antigo/restrito), cai de volta para o localStorage puro.
 async function dbLoadState() {
-  try {
-    const db = await openDatabase();
-    const saved = await idbGet(db, DB_KEY);
-    if (saved) return normalizeState(saved);
-
-    const migrated = migrateFromLocalStorage();
-    if (migrated) {
-      await idbPut(db, DB_KEY, migrated);
-      return migrated;
-    }
-    return defaultState();
-  } catch (e) {
-    console.error("IndexedDB indisponível, usando localStorage como alternativa.", e);
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? normalizeState(JSON.parse(raw)) : defaultState();
-  }
+  const res = await fetch("/api/state-get");
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const body = await res.json();
+  return body.data ? normalizeState(body.data) : defaultState();
 }
 
 /* ===================== Utilitários numéricos ===================== */
@@ -439,14 +435,45 @@ function buildPackagingOptions(selectedId) {
     .join("");
 }
 
+/* ---------- Estoque de embalagem -----------
+   Mesma lógica do estoque de filamento: nunca guardamos um contador que vai sendo
+   decrementado à mão — o estoque atual é sempre "quantidade comprada" menos "quantas vezes
+   essa embalagem foi selecionada em algum produto cadastrado nas lojas" (1 unidade por
+   produto, já que cada pedido usa uma embalagem). */
+
+// conta, em todas as lojas (3D e Revenda), quantas vezes essa embalagem foi usada
+function packagingConsumedUnits(embalagemId) {
+  let total = 0;
+  STORE_META.forEach(meta => {
+    state.stores[meta.key].forEach(row => {
+      if (row.embalagemId === embalagemId) total += 1;
+    });
+  });
+  return total;
+}
+
+// { comprado, consumido, atual } em unidades, pra uma embalagem
+function packagingStock(p) {
+  const comprado = n(p.quantidade);
+  const consumido = packagingConsumedUnits(p.id);
+  return { comprado, consumido, atual: comprado - consumido };
+}
+
 function buildTaxaMEOptions(selected) {
   return TAXA_ME_OPCOES.map(o => `<option value="${o.key}" ${o.key === (selected || "nenhum") ? "selected" : ""}>${o.label}</option>`).join("");
 }
 
+/* ---------- Impressoras ---------- */
+
 function getPrinterPower(impressora) {
-  if (impressora === "A1") return n(state.params.potA1);
-  if (impressora === "A1 mini") return n(state.params.potA1Mini);
-  return 0;
+  const p = state.printers.find(p => p.nome === impressora);
+  return p ? n(p.potencia) : 0;
+}
+
+function buildPrinterOptions(selected) {
+  return ['<option value="">—</option>']
+    .concat(state.printers.map(p => `<option value="${escapeAttr(p.nome)}" ${p.nome === selected ? "selected" : ""}>${escapeHtml(p.nome || "(sem nome)")}</option>`))
+    .join("");
 }
 
 function calcRow(row) {
@@ -543,6 +570,7 @@ function renderNav() {
   items.push(navGroupLabel("Produção"));
   items.push(navItem("filamentos", "Filamentos", "◆"));
   items.push(navItem("embalagens", "Embalagens", "▭"));
+  items.push(navItem("impressoras", "Impressoras", "⎙"));
   items.push(navItem("parametros", "Parâmetros", "⚙"));
   items.push(navItem("precificacao", "Precificação", "%"));
 
@@ -562,6 +590,11 @@ function renderNav() {
 
   items.push(navGroupLabel("Conta"));
   items.push(navItem("perfil", "Perfil", "◐"));
+
+  if (window.isAdmin) {
+    items.push(navGroupLabel("Administração"));
+    items.push(navItem("aprovacoes", "Aprovações", "✓"));
+  }
 
   nav.innerHTML = items.join("");
 
@@ -594,6 +627,7 @@ function renderContent() {
 
   if (activeTab === "filamentos") content.appendChild(renderFilamentsPanel());
   else if (activeTab === "embalagens") content.appendChild(renderPackagingsPanel());
+  else if (activeTab === "impressoras") content.appendChild(renderPrintersPanel());
   else if (activeTab === "parametros") content.appendChild(renderParamsPanel());
   else if (activeTab === "precificacao") content.appendChild(renderPricingPanel());
   else if (activeTab === "ads") content.appendChild(renderAdsPanel());
@@ -602,6 +636,7 @@ function renderContent() {
   else if (activeTab === "resumo") content.appendChild(renderResumoPanel());
   else if (activeTab === "kpis") content.appendChild(renderKpisPanel());
   else if (activeTab === "perfil") content.appendChild(renderPerfilPanel());
+  else if (activeTab === "aprovacoes") content.appendChild(renderAprovacoesPanel());
   else content.appendChild(renderStorePanel(activeTab));
 }
 
@@ -733,35 +768,58 @@ function renderPackagingsPanel() {
     <header class="panel-header">
       <div>
         <h1 class="page-title">Embalagens</h1>
-        <p class="panel-sub">Cadastre cada embalagem que você compra: o preço total pago e a quantidade de unidades que vieram no pacote. O preço por unidade é calculado sozinho e aparece no seletor de cada produto — assim você não precisa digitar o custo da embalagem à mão.</p>
+        <p class="panel-sub">Cadastre cada embalagem que você compra: o preço total pago e a quantidade de unidades que vieram no pacote. O preço por unidade é calculado sozinho e aparece no seletor de cada produto. O estoque também é calculado sozinho — abate automaticamente 1 unidade a cada produto cadastrado nas lojas que usar essa embalagem.</p>
       </div>
       <div class="panel-actions">
         <button class="primary-btn" id="pack-add">+ Nova embalagem</button>
       </div>
     </header>
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Embalagem</th>
-            <th class="num">Preço Pago (R$)</th>
-            <th class="num">Quantidade (un)</th>
-            <th class="num calc">Preço Unitário (R$/un)</th>
-            <th>Observações</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="pack-body"></tbody>
-      </table>
-    </div>
   `;
 
-  const tbody = panel.querySelector("#pack-body");
+  if (state.packagings.length > 0) {
+    const grid = document.createElement("div");
+    grid.className = "summary-grid";
+    grid.innerHTML = state.packagings.map(p => {
+      const s = packagingStock(p);
+      const cls = s.atual < 0 ? "margin-bad" : s.atual < 5 ? "margin-warn" : "margin-good";
+      return `
+        <div class="summary-card">
+          <div class="label">${escapeHtml(p.nome || "(sem nome)")}</div>
+          <div class="value"><span class="margin-badge ${cls}">${s.atual.toLocaleString("pt-BR")} un</span></div>
+          <div class="sub">estoque atual · comprado ${s.comprado.toLocaleString("pt-BR")} un, usado ${s.consumido.toLocaleString("pt-BR")} un</div>
+        </div>
+      `;
+    }).join("");
+    panel.appendChild(grid);
+  }
+
+  const tableWrap = document.createElement("div");
+  tableWrap.className = "table-wrap";
+  const table = document.createElement("table");
+  table.className = "data-table";
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Embalagem</th>
+        <th class="num">Preço Pago (R$)</th>
+        <th class="num">Quantidade Comprada (un)</th>
+        <th class="num calc">Consumido (un)</th>
+        <th class="num calc">Estoque Atual (un)</th>
+        <th class="num calc">Preço Unitário (R$/un)</th>
+        <th>Observações</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="pack-body"></tbody>
+  `;
+  const tbody = table.querySelector("#pack-body");
   if (state.packagings.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state">Nenhuma embalagem cadastrada ainda.</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state">Nenhuma embalagem cadastrada ainda.</div></td></tr>`;
   } else {
     state.packagings.forEach(p => tbody.appendChild(packagingRow(p)));
   }
+  tableWrap.appendChild(table);
+  panel.appendChild(tableWrap);
 
   panel.querySelector("#pack-add").addEventListener("click", () => {
     state.packagings.push({ id: uid(), nome: "", preco: 0, quantidade: 1, obs: "" });
@@ -779,12 +837,19 @@ function packagingRow(p) {
     <td><input type="text" value="${escapeAttr(p.nome)}" data-field="nome" placeholder="Ex: Caixa de papelão P"></td>
     <td class="num"><input type="number" step="0.01" value="${p.preco}" data-field="preco"></td>
     <td class="num"><input type="number" step="1" value="${p.quantidade}" data-field="quantidade"></td>
+    <td class="num calc-cell" data-out="estoqueConsumido">—</td>
+    <td class="num calc-cell" data-out="estoqueAtual">—</td>
     <td class="num calc-cell" data-out="unitPrice">—</td>
     <td><input type="text" value="${escapeAttr(p.obs || "")}" data-field="obs" placeholder="opcional"></td>
     <td><button class="icon-btn" data-action="delete" title="Remover">✕</button></td>
   `;
 
-  const updateUnitPrice = () => {
+  const updateCalcCells = () => {
+    const s = packagingStock(p);
+    tr.querySelector('[data-out="estoqueConsumido"]').textContent = `${s.consumido.toLocaleString("pt-BR")} un`;
+    const atualCell = tr.querySelector('[data-out="estoqueAtual"]');
+    atualCell.textContent = `${s.atual.toLocaleString("pt-BR")} un`;
+    atualCell.classList.toggle("devolucao-not-found", s.atual < 0);
     tr.querySelector('[data-out="unitPrice"]').textContent = fmtCurrency(getPackagingUnitPrice(p.id));
   };
 
@@ -793,7 +858,7 @@ function packagingRow(p) {
       const field = input.dataset.field;
       p[field] = (field === "preco" || field === "quantidade") ? n(input.value) : input.value;
       saveState();
-      updateUnitPrice();
+      updateCalcCells();
       // recalcula colunas de custo de embalagem em todas as lojas, sem redesenhar tudo
       recalcAllStoreTables();
     });
@@ -806,7 +871,95 @@ function packagingRow(p) {
     renderContent();
   });
 
-  updateUnitPrice();
+  updateCalcCells();
+  return tr;
+}
+
+/* ---------- Impressoras ---------- */
+
+function renderPrintersPanel() {
+  const panel = document.createElement("section");
+  panel.className = "panel";
+  panel.innerHTML = `
+    <header class="panel-header">
+      <div>
+        <h1 class="page-title">Impressoras</h1>
+        <p class="panel-sub">Cadastre cada impressora que você usa, com a potência média de consumo (usada para calcular o custo de energia de cada peça). O campo de nome traz sugestões dos modelos mais comuns do mercado, mas você pode digitar qualquer nome.</p>
+      </div>
+      <div class="panel-actions">
+        <button class="primary-btn" id="printer-add">+ Nova impressora</button>
+      </div>
+    </header>
+    <datalist id="printer-suggestions">
+      ${PRINTER_SUGESTOES.map(nome => `<option value="${escapeAttr(nome)}"></option>`).join("")}
+    </datalist>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Impressora</th>
+            <th class="num">Potência Média (W)</th>
+            <th>Observações</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="printer-body"></tbody>
+      </table>
+    </div>
+  `;
+
+  const tbody = panel.querySelector("#printer-body");
+  if (state.printers.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state">Nenhuma impressora cadastrada ainda.</div></td></tr>`;
+  } else {
+    state.printers.forEach(p => tbody.appendChild(printerRow(p)));
+  }
+
+  panel.querySelector("#printer-add").addEventListener("click", () => {
+    state.printers.push({ id: uid(), nome: "", potencia: 100, obs: "" });
+    saveState();
+    renderContent();
+  });
+
+  return panel;
+}
+
+function printerRow(p) {
+  const tr = document.createElement("tr");
+  if (p.obs && p.obs.includes("exemplo")) tr.classList.add("example-row");
+  tr.innerHTML = `
+    <td><input type="text" list="printer-suggestions" value="${escapeAttr(p.nome)}" data-field="nome" placeholder="Ex: Bambu Lab A1"></td>
+    <td class="num"><input type="number" step="1" min="0" value="${p.potencia}" data-field="potencia" title="Consumo médio durante a impressão, em Watts"></td>
+    <td><input type="text" value="${escapeAttr(p.obs || "")}" data-field="obs" placeholder="opcional"></td>
+    <td><button class="icon-btn" data-action="delete" title="Remover">✕</button></td>
+  `;
+
+  tr.querySelectorAll("input").forEach(input => {
+    input.addEventListener("input", () => {
+      const field = input.dataset.field;
+      const oldNome = p.nome;
+      p[field] = field === "potencia" ? n(input.value) : input.value;
+      saveState();
+      // se o nome da impressora mudou, atualiza as seleções que apontavam pro nome antigo,
+      // pra não perder a referência de qual impressora cada produto usou
+      if (field === "nome" && oldNome !== p.nome) {
+        STORE_META.forEach(meta => {
+          state.stores[meta.key].forEach(row => { if (row.impressora === oldNome) row.impressora = p.nome; });
+        });
+        state.pricing.threeD.forEach(row => { if (row.impressora === oldNome) row.impressora = p.nome; });
+      }
+      // recalcula colunas de custo de energia em todas as lojas, sem redesenhar tudo
+      recalcAllStoreTables();
+    });
+  });
+
+  tr.querySelector('[data-action="delete"]').addEventListener("click", () => {
+    if (!confirm(`Remover a impressora "${p.nome || "(sem nome)"}"? Produtos que usam ela ficarão sem impressora selecionada.`)) return;
+    state.printers = state.printers.filter(x => x.id !== p.id);
+    saveState();
+    renderContent();
+  });
+
   return tr;
 }
 
@@ -819,26 +972,10 @@ function renderParamsPanel() {
     <header class="panel-header">
       <div>
         <h1 class="page-title">Parâmetros</h1>
-        <p class="panel-sub">Valem para todas as lojas. Usados para calcular o custo de energia de cada peça impressa.</p>
+        <p class="panel-sub">Vale para todas as lojas. Usado para calcular o custo de energia de cada peça impressa. A potência de cada impressora agora é cadastrada na aba "Impressoras".</p>
       </div>
     </header>
     <div class="param-grid">
-      <div class="param-card">
-        <label>Potência Bambu Lab A1</label>
-        <div class="unit-input">
-          <input type="number" step="1" id="p-a1" value="${state.params.potA1}">
-          <span class="unit">W</span>
-        </div>
-        <p class="param-note">Consumo médio durante a impressão (não a potência máxima da fonte). Confirme com um wattímetro se possível.</p>
-      </div>
-      <div class="param-card">
-        <label>Potência Bambu Lab A1 mini</label>
-        <div class="unit-input">
-          <input type="number" step="1" id="p-a1mini" value="${state.params.potA1Mini}">
-          <span class="unit">W</span>
-        </div>
-        <p class="param-note">A A1 mini consome menos que a A1 por ter mesa e volume de impressão menores.</p>
-      </div>
       <div class="param-card">
         <label>Tarifa de Energia</label>
         <div class="unit-input">
@@ -850,16 +987,6 @@ function renderParamsPanel() {
     </div>
   `;
 
-  panel.querySelector("#p-a1").addEventListener("input", e => {
-    state.params.potA1 = n(e.target.value);
-    saveState();
-    recalcAllStoreTables();
-  });
-  panel.querySelector("#p-a1mini").addEventListener("input", e => {
-    state.params.potA1Mini = n(e.target.value);
-    saveState();
-    recalcAllStoreTables();
-  });
   panel.querySelector("#p-tarifa").addEventListener("input", e => {
     state.params.tarifa = n(e.target.value);
     saveState();
@@ -1058,9 +1185,7 @@ function storeRow3D(storeKey, row) {
     .concat(state.filaments.map(f => `<option value="${f.id}" ${f.id === row.filamentoId ? "selected" : ""}>${escapeHtml(f.nome || "(sem nome)")}</option>`))
     .join("");
 
-  const printerOptions = ['<option value="">—</option>']
-    .concat(PRINTERS.map(p => `<option value="${p}" ${p === row.impressora ? "selected" : ""}>${p}</option>`))
-    .join("");
+  const printerOptions = buildPrinterOptions(row.impressora);
 
   tr.innerHTML = `
     <td class="col-produto"><input type="text" value="${escapeAttr(row.produto)}" data-field="produto" placeholder="Nome do produto"></td>
@@ -1320,9 +1445,7 @@ function pricingRow3D(row) {
     .concat(state.filaments.map(f => `<option value="${f.id}" ${f.id === row.filamentoId ? "selected" : ""}>${escapeHtml(f.nome || "(sem nome)")}</option>`))
     .join("");
 
-  const printerOptions = ['<option value="">—</option>']
-    .concat(PRINTERS.map(p => `<option value="${p}" ${p === row.impressora ? "selected" : ""}>${p}</option>`))
-    .join("");
+  const printerOptions = buildPrinterOptions(row.impressora);
 
   tr.innerHTML = `
     <td class="col-produto"><input type="text" value="${escapeAttr(row.produto)}" data-field="produto" placeholder="Nome do produto"></td>
@@ -1516,7 +1639,7 @@ function renderCustosFixosPanel() {
     <header class="panel-header">
       <div>
         <h1 class="page-title">Custos Fixos</h1>
-        <p class="panel-sub">Registre custos fixos mensais do seu negócio, como contadora, assinaturas, etc.</p>
+        <p class="panel-sub">Registre custos fixos mensais do seu negócio, como contadora, assinaturas, etc. Informe a data de cada um para que entrem corretamente no lucro/prejuízo mostrado nos KPIs do período.</p>
       </div>
       <div class="panel-actions">
         <button class="primary-btn" data-action="add-row">+ Novo custo fixo</button>
@@ -1540,6 +1663,7 @@ function renderCustosFixosPanel() {
     <thead>
       <tr>
         <th>Nome</th>
+        <th>Data</th>
         <th class="num">Valor Mensal (R$)</th>
         <th>Observações</th>
         <th></th>
@@ -1551,7 +1675,7 @@ function renderCustosFixosPanel() {
 
   if (rows.length === 0) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="4"><div class="empty-state">Nenhum custo fixo cadastrado ainda. Clique em "Novo custo fixo".</div></td>`;
+    tr.innerHTML = `<td colspan="5"><div class="empty-state">Nenhum custo fixo cadastrado ainda. Clique em "Novo custo fixo".</div></td>`;
     tbody.appendChild(tr);
   } else {
     rows.forEach(c => tbody.appendChild(custoFixoRow(c)));
@@ -1561,7 +1685,7 @@ function renderCustosFixosPanel() {
   panel.appendChild(tableWrap);
 
   panel.querySelector('[data-action="add-row"]').addEventListener("click", () => {
-    state.custosFixos.push({ id: uid(), example: false, nome: "", valor: "", obs: "" });
+    state.custosFixos.push({ id: uid(), example: false, nome: "", valor: "", data: new Date().toISOString().slice(0, 10), obs: "" });
     saveState();
     renderContent();
   });
@@ -1574,12 +1698,19 @@ function custoFixoRow(c) {
   if (c.example) tr.classList.add("example-row");
   tr.innerHTML = `
     <td><input type="text" value="${escapeAttr(c.nome)}" data-field="nome" placeholder="Ex: Contadora"></td>
+    <td><input type="text" inputmode="numeric" class="date-input" maxlength="10" value="${formatDateBR(c.data)}" data-field="data" placeholder="dd/mm/aaaa"></td>
     <td class="num"><input type="number" step="0.01" value="${c.valor}" data-field="valor"></td>
     <td><input type="text" value="${escapeAttr(c.obs || "")}" data-field="obs" placeholder="opcional"></td>
     <td><button class="icon-btn" data-action="delete" title="Remover">✕</button></td>
   `;
 
-  tr.querySelectorAll("input").forEach(input => {
+  const dataEl = tr.querySelector('[data-field="data"]');
+  attachDateMask(dataEl, iso => {
+    c.data = iso;
+    saveState();
+  });
+
+  tr.querySelectorAll('[data-field]:not([data-field="data"])').forEach(input => {
     input.addEventListener("input", () => {
       const field = input.dataset.field;
       c[field] = field === "valor" ? n(input.value) : input.value;
@@ -2060,6 +2191,10 @@ function renderKpisPanel() {
   const gastoAds = adsGastoFiltered({ store: kpiState.store, year: kpiState.year, month: kpiState.month });
   lucro -= gastoAds;
 
+  // custos fixos do mesmo período (não são por loja) também contam como custo e reduzem o lucro
+  const gastoCustosFixos = custosFixosGastoFiltered({ year: kpiState.year, month: kpiState.month });
+  lucro -= gastoCustosFixos;
+
   const margem = faturamento ? lucro / faturamento : null;
   const ticket = pedidos ? faturamento / pedidos : null;
   const taxaDevolucao = pedidos ? devolvidos / pedidos : null;
@@ -2073,6 +2208,7 @@ function renderKpisPanel() {
     kpiCard("Lucro Líquido", fmtCurrency(lucro), margem !== null ? `margem ${fmtPercent(margem)}` : "—"),
     kpiCard("Custo Total", fmtCurrency(custoTotal), "filamento + energia + taxas + embalagem"),
     kpiCard("Gasto ADS", fmtCurrency(gastoAds), "já descontado do lucro líquido"),
+    kpiCard("Custos Fixos", fmtCurrency(gastoCustosFixos), "já descontado do lucro líquido"),
     kpiCard("Ticket Médio", ticket !== null ? fmtCurrency(ticket) : "—", "por pedido"),
     kpiCard("Devoluções", String(devolvidos), taxaDevolucao !== null ? `${fmtPercent(taxaDevolucao)} dos pedidos` : "sem pedidos"),
     kpiCard("Crescimento (12 meses)", crescimento.valor !== null ? fmtPercent(crescimento.valor) : "—", crescimento.detalhe),
@@ -2408,6 +2544,89 @@ function renderPerfilPanel() {
   return panel;
 }
 
+/* ---------- Aprovações (só visível pra você, o dono da conta) ---------- */
+
+function renderAprovacoesPanel() {
+  const panel = document.createElement("section");
+  panel.className = "panel";
+  panel.innerHTML = `
+    <header class="panel-header">
+      <div>
+        <h1 class="page-title">Aprovações</h1>
+        <p class="panel-sub">Cadastros aguardando sua aprovação pra poder entrar no sistema.</p>
+      </div>
+    </header>
+    <div id="aprovacoes-body"><div class="empty-state">Carregando...</div></div>
+  `;
+
+  const body = panel.querySelector("#aprovacoes-body");
+
+  async function load() {
+    body.innerHTML = `<div class="empty-state">Carregando...</div>`;
+    try {
+      const res = await fetch("/api/admin-pending");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const { users } = await res.json();
+      if (!users || users.length === 0) {
+        body.innerHTML = `<div class="empty-state">Nenhum cadastro pendente no momento.</div>`;
+        return;
+      }
+      const table = document.createElement("table");
+      table.className = "data-table";
+      table.innerHTML = `
+        <thead><tr><th>E-mail</th><th>Cadastrado em</th><th></th></tr></thead>
+        <tbody></tbody>
+      `;
+      const tbody = table.querySelector("tbody");
+      users.forEach(u => {
+        const tr = document.createElement("tr");
+        const data = new Date(u.created_at).toLocaleString("pt-BR");
+        tr.innerHTML = `
+          <td>${escapeHtml(u.email)}</td>
+          <td>${data}</td>
+          <td>
+            <button class="primary-btn small" data-action="approve" data-id="${u.id}">Aprovar</button>
+            <button class="ghost-btn small" data-action="reject" data-id="${u.id}">Rejeitar</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+      const wrap = document.createElement("div");
+      wrap.className = "table-wrap";
+      wrap.appendChild(table);
+      body.innerHTML = "";
+      body.appendChild(wrap);
+
+      body.querySelectorAll('[data-action="approve"], [data-action="reject"]').forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const action = btn.dataset.action === "approve" ? "approve" : "reject";
+          btn.disabled = true;
+          try {
+            const res = await fetch("/api/admin-approve", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ userId: btn.dataset.id, action }),
+            });
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            showToast(action === "approve" ? "Cadastro aprovado." : "Cadastro rejeitado.");
+            load();
+          } catch (e) {
+            console.error(e);
+            showToast("⚠ Não foi possível concluir a ação.");
+            btn.disabled = false;
+          }
+        });
+      });
+    } catch (e) {
+      console.error(e);
+      body.innerHTML = `<div class="empty-state">Não foi possível carregar os pendentes agora.</div>`;
+    }
+  }
+
+  load();
+  return panel;
+}
+
 /* ===================== Export / Import ===================== */
 
 function exportStoreCSV(storeKey) {
@@ -2566,13 +2785,17 @@ document.getElementById("btn-theme-toggle").addEventListener("click", () => {
 
 applyTheme();
 
-/* ===================== Init ===================== */
+/* ===================== Init =====================
+   Diferente de antes, o app não inicia sozinho ao carregar o script: quem decide a hora
+   certa de chamar startApp() é o auth.js, depois de confirmar que existe uma sessão válida
+   (usuário logado e aprovado). Antes disso, é a tela de login/cadastro que fica visível. */
 
-async function init() {
+async function startApp() {
   try {
     state = await dbLoadState();
   } catch (e) {
     console.error("Falha ao carregar dados salvos, usando padrão.", e);
+    showToast("⚠ Não foi possível carregar seus dados agora. Tente recarregar a página.");
     state = defaultState();
   }
   renderNav();
@@ -2581,4 +2804,4 @@ async function init() {
   applySidebarState();
 }
 
-init();
+window.startApp = startApp;

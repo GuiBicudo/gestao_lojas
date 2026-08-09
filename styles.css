@@ -266,6 +266,91 @@ html, body {
 }
 .content .ghost-btn:hover { background: var(--line-soft); }
 .ghost-btn.small { padding: 7px 12px; font-size: 12px; }
+.primary-btn.small { padding: 6px 12px; font-size: 12px; }
+.primary-btn:disabled { opacity: 0.65; cursor: default; filter: none; }
+
+/* ---------- Auth (login / cadastro) ---------- */
+
+.auth-gate {
+  min-height: 100vh;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  background: var(--sidebar-bg);
+  padding: 24px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--bg-panel);
+  border-radius: var(--radius);
+  padding: 32px 28px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 22px;
+  font-family: var(--font-heading);
+  color: var(--ink);
+}
+.auth-brand .brand-mark { color: var(--accent); font-size: 20px; }
+.auth-brand strong { font-size: 16px; }
+
+.auth-tabs { width: 100%; margin-bottom: 18px; }
+.auth-tabs .segmented-btn { flex: 1; }
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.auth-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+.auth-form input {
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line-soft);
+  background: var(--bg-panel);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 13.5px;
+}
+.auth-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.auth-form .primary-btn { margin-top: 4px; width: 100%; }
+
+.auth-notice {
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  margin-bottom: 16px;
+  background: var(--line-soft);
+  color: var(--ink-soft);
+}
+.auth-notice.good { background: var(--good-soft); color: var(--good); }
+.auth-notice.bad { background: var(--bad-soft); color: var(--bad); }
+
+.auth-hint {
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  text-align: center;
+}
+.auth-hint a { color: var(--accent); text-decoration: none; font-weight: 600; }
+.auth-hint a:hover { text-decoration: underline; }
 
 .icon-btn {
   background: transparent;
