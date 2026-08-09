@@ -21,7 +21,9 @@ exports.handler = async (event) => {
 
   const [user] = await sql`
     update users
-    set status = ${decision}, approved_at = case when ${decision} = 'approved' then now() else approved_at end
+    set status = ${decision},
+        approved_at = case when ${decision} = 'approved' then now() else approved_at end,
+        trial_ends_at = case when ${decision} = 'approved' then now() + make_interval(days => 7) else trial_ends_at end
     where id = ${userId} and status = 'pending'
     returning id, email
   `;

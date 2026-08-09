@@ -1,11 +1,24 @@
 const { sql } = require("./_db");
-const { getSessionFromEvent, json } = require("./_auth");
+const { getSessionFromEvent, isOwnerEmail, json } = require("./_auth");
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { error: "method_not_allowed" });
 
   const session = getSessionFromEvent(event);
   if (!session) return json(401, { error: "not_authenticated" });
+
+  // Defesa extra: mesmo com o front-end travando a tela, o backend também recusa salvar
+  // dados novos se a conta foi bloqueada ou o trial venceu (sessões antigas de até 30 dias
+  // não sabem disso sozinhas).
+  if (!isOwnerEmail(session.email)) {
+    const [user] = await sql`select trial_ends_at, blocked_at from users where id = ${session.id}`;
+    if (user && user.blocked_at) {
+      return json(403, { error: "blocked", message: "Seu acesso foi bloqueado." });
+    }
+    if (user && user.trial_ends_at && new Date(user.trial_ends_at) < new Date()) {
+      return json(403, { error: "trial_expired", message: "Seu período de teste expirou." });
+    }
+  }
 
   let body;
   try {

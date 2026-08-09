@@ -198,6 +198,65 @@ html, body {
   margin: 4px 2px 0;
 }
 
+.nav-label { flex: 1; }
+
+.nav-item.locked { opacity: 0.85; }
+
+.premium-badge {
+  flex-shrink: 0;
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #14181C;
+  background: #F5C518;
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+
+#current-user-hint.hint {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+}
+
+.account-email {
+  color: var(--sidebar-ink);
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.account-access {
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.account-access.premium { color: #F5C518; }
+.account-access.trial { color: #A8B0B8; }
+.account-access.expired { color: #F5A524; }
+.account-access.expired a {
+  color: #F5C518;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.premium-lock {
+  text-align: center;
+  padding: 48px 24px;
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.premium-lock-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 0 8px;
+}
+
+.premium-lock .panel-sub { margin-bottom: 18px; }
+
 /* ---------- Sidebar colapsada (só ícones) ---------- */
 
 .sidebar.collapsed .brand-text,
@@ -497,6 +556,14 @@ table.data-table td {
 table.data-table tbody tr:hover { background: var(--row-hover); }
 table.data-table tr.example-row { background: var(--accent-soft) !important; }
 table.data-table tr.example-row td { color: var(--accent-ink); }
+table.data-table tr.example-row input,
+table.data-table tr.example-row select {
+  color: var(--accent-ink) !important;
+}
+table.data-table tr.example-row input::placeholder {
+  color: var(--accent-ink);
+  opacity: 0.6;
+}
 
 td.num, td.calc-cell {
   text-align: right;

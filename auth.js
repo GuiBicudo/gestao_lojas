@@ -222,7 +222,9 @@ async function boot() {
   }
 
   window.isAdmin = !!me.isAdmin;
-  document.getElementById("current-user-hint").textContent = me.email + (me.isAdmin ? " · admin" : "");
+  window.userEmail = me.email;
+  window.trialEndsAt = me.trialEndsAt || null;
+  window.hasAccess = me.isAdmin || !!me.hasAccess;
   showApp();
   window.startApp();
 }

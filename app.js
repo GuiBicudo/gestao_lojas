@@ -566,27 +566,28 @@ let activeTab = "filamentos";
 function renderNav() {
   const nav = document.getElementById("nav");
   const items = [];
+  const locked = !window.isAdmin && window.hasAccess === false;
 
   items.push(navGroupLabel("Produção"));
-  items.push(navItem("filamentos", "Filamentos", "◆"));
-  items.push(navItem("embalagens", "Embalagens", "▭"));
-  items.push(navItem("impressoras", "Impressoras", "⎙"));
-  items.push(navItem("parametros", "Parâmetros", "⚙"));
-  items.push(navItem("precificacao", "Precificação", "%"));
+  items.push(navItem("filamentos", "Filamentos", "◆", null, locked));
+  items.push(navItem("embalagens", "Embalagens", "▭", null, locked));
+  items.push(navItem("impressoras", "Impressoras", "⎙", null, locked));
+  items.push(navItem("parametros", "Parâmetros", "⚙", null, locked));
+  items.push(navItem("precificacao", "Precificação", "%", null, locked));
 
   items.push(navGroupLabel("Lojas"));
-  STORE_META.forEach(s => items.push(navItem(s.key, s.label, null, s.color)));
+  STORE_META.forEach(s => items.push(navItem(s.key, s.label, null, s.color, locked)));
 
   items.push(navGroupLabel("Despesas"));
-  items.push(navItem("ads", "ADS", "◎"));
-  items.push(navItem("custosfixos", "Custos Fixos", "▥"));
+  items.push(navItem("ads", "ADS", "◎", null, locked));
+  items.push(navItem("custosfixos", "Custos Fixos", "▥", null, locked));
 
   items.push(navGroupLabel("Pós-venda"));
-  items.push(navItem("devolucoes", "Devoluções", "↺"));
+  items.push(navItem("devolucoes", "Devoluções", "↺", null, locked));
 
   items.push(navGroupLabel("Visão Geral"));
-  items.push(navItem("resumo", "Resumo", "▤"));
-  items.push(navItem("kpis", "KPIs", "▲"));
+  items.push(navItem("resumo", "Resumo", "▤", null, locked));
+  items.push(navItem("kpis", "KPIs", "▲", null, locked));
 
   items.push(navGroupLabel("Conta"));
   items.push(navItem("perfil", "Perfil", "◐"));
@@ -594,6 +595,7 @@ function renderNav() {
   if (window.isAdmin) {
     items.push(navGroupLabel("Administração"));
     items.push(navItem("aprovacoes", "Aprovações", "✓"));
+    items.push(navItem("usuarios", "Usuários", "◈"));
   }
 
   nav.innerHTML = items.join("");
@@ -611,12 +613,13 @@ function navGroupLabel(text) {
   return `<div class="nav-group-label">${text}</div>`;
 }
 
-function navItem(key, label, icon, color) {
+function navItem(key, label, icon, color, locked) {
   const active = key === activeTab ? "active" : "";
   const marker = color
     ? `<span class="nav-dot" style="background:${color}"></span>`
     : `<span style="width:16px;text-align:center;color:#8F98A1;">${icon}</span>`;
-  return `<button class="nav-item ${active}" data-tab="${key}" title="${label}">${marker}<span class="nav-label">${label}</span></button>`;
+  const badge = locked ? `<span class="premium-badge">Premium</span>` : "";
+  return `<button class="nav-item ${active}${locked ? " locked" : ""}" data-tab="${key}" title="${label}">${marker}<span class="nav-label">${label}</span>${badge}</button>`;
 }
 
 /* ===================== Render: conteúdo principal ===================== */
@@ -624,6 +627,12 @@ function navItem(key, label, icon, color) {
 function renderContent() {
   const content = document.getElementById("content");
   content.innerHTML = "";
+
+  const locked = !window.isAdmin && window.hasAccess === false && activeTab !== "perfil";
+  if (locked) {
+    content.appendChild(renderPremiumLockPanel());
+    return;
+  }
 
   if (activeTab === "filamentos") content.appendChild(renderFilamentsPanel());
   else if (activeTab === "embalagens") content.appendChild(renderPackagingsPanel());
@@ -637,6 +646,7 @@ function renderContent() {
   else if (activeTab === "kpis") content.appendChild(renderKpisPanel());
   else if (activeTab === "perfil") content.appendChild(renderPerfilPanel());
   else if (activeTab === "aprovacoes") content.appendChild(renderAprovacoesPanel());
+  else if (activeTab === "usuarios") content.appendChild(renderUsuariosPanel());
   else content.appendChild(renderStorePanel(activeTab));
 }
 
@@ -2627,6 +2637,160 @@ function renderAprovacoesPanel() {
   return panel;
 }
 
+function renderPremiumLockPanel() {
+  const panel = document.createElement("section");
+  panel.className = "panel";
+  panel.innerHTML = `
+    <div class="empty-state premium-lock">
+      <p class="premium-lock-title">🔒 Seu período de teste acabou</p>
+      <p class="panel-sub">Fale com o administrador pra continuar usando essa área.</p>
+      <button class="primary-btn" id="btn-request-premium">✨ Torne-se premium</button>
+    </div>
+  `;
+  panel.querySelector("#btn-request-premium").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.textContent = "Enviando...";
+    await requestPremium();
+    btn.disabled = false;
+    btn.textContent = "✨ Torne-se premium";
+  });
+  return panel;
+}
+
+function renderUsuariosPanel() {
+  const panel = document.createElement("section");
+  panel.className = "panel";
+  panel.innerHTML = `
+    <header class="panel-header">
+      <div>
+        <h1 class="page-title">Usuários</h1>
+        <p class="panel-sub">Todos os cadastros da plataforma — status, trial e bloqueio.</p>
+      </div>
+    </header>
+    <div id="usuarios-body"><div class="empty-state">Carregando...</div></div>
+  `;
+
+  const body = panel.querySelector("#usuarios-body");
+
+  function fmtData(v) {
+    return v ? new Date(v).toLocaleString("pt-BR") : "—";
+  }
+
+  function statusLabel(u) {
+    if (u.status === "pending") return "Pendente";
+    if (u.status === "rejected") return "Rejeitado";
+    if (u.blocked_at) return "Bloqueado";
+    if (u.trial_ends_at && new Date(u.trial_ends_at) < new Date()) return "Trial expirado";
+    return "Ativo";
+  }
+
+  async function runAction(btn, userId, act, extra) {
+    btn.disabled = true;
+    try {
+      const res = await fetch("/api/admin-user-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, action: act, ...extra }),
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      await load();
+      return true;
+    } catch (e) {
+      console.error(e);
+      showToast("⚠ Não foi possível concluir a ação.");
+      btn.disabled = false;
+      return false;
+    }
+  }
+
+  async function load() {
+    body.innerHTML = `<div class="empty-state">Carregando...</div>`;
+    try {
+      const res = await fetch("/api/admin-users");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const { users } = await res.json();
+      if (!users || users.length === 0) {
+        body.innerHTML = `<div class="empty-state">Nenhum usuário cadastrado ainda.</div>`;
+        return;
+      }
+
+      const table = document.createElement("table");
+      table.className = "data-table";
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th>E-mail</th>
+            <th>Status</th>
+            <th>Cadastrado em</th>
+            <th>Trial até</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      `;
+      const tbody = table.querySelector("tbody");
+
+      users.forEach(u => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${escapeHtml(u.email)}</td>
+          <td>${statusLabel(u)}</td>
+          <td>${fmtData(u.created_at)}</td>
+          <td>${fmtData(u.trial_ends_at)}</td>
+          <td class="usuarios-actions"></td>
+        `;
+
+        const actionsCell = tr.querySelector(".usuarios-actions");
+        if (u.status === "approved") {
+          const btn7 = document.createElement("button");
+          btn7.className = "ghost-btn small";
+          btn7.textContent = "+7 dias trial";
+          btn7.addEventListener("click", () => runAction(btn7, u.id, "extend_trial", { days: 7 }));
+          actionsCell.appendChild(btn7);
+
+          const btn30 = document.createElement("button");
+          btn30.className = "ghost-btn small";
+          btn30.textContent = "+30 dias trial";
+          btn30.addEventListener("click", () => runAction(btn30, u.id, "extend_trial", { days: 30 }));
+          actionsCell.appendChild(btn30);
+
+          const btnClear = document.createElement("button");
+          btnClear.className = "ghost-btn small";
+          btnClear.textContent = "Remover limite de trial";
+          btnClear.addEventListener("click", () => runAction(btnClear, u.id, "clear_trial"));
+          actionsCell.appendChild(btnClear);
+
+          const btnBlock = document.createElement("button");
+          btnBlock.className = "ghost-btn small";
+          btnBlock.textContent = u.blocked_at ? "Desbloquear" : "Bloquear";
+          btnBlock.addEventListener("click", () => {
+            if (!confirm(u.blocked_at ? "Desbloquear esse usuário?" : "Bloquear o acesso desse usuário?")) return;
+            runAction(btnBlock, u.id, u.blocked_at ? "unblock" : "block");
+          });
+          actionsCell.appendChild(btnBlock);
+        } else {
+          actionsCell.textContent = "—";
+        }
+
+        tbody.appendChild(tr);
+      });
+
+      const wrap = document.createElement("div");
+      wrap.className = "table-wrap";
+      wrap.appendChild(table);
+      body.innerHTML = "";
+      body.appendChild(wrap);
+    } catch (e) {
+      console.error(e);
+      body.innerHTML = `<div class="empty-state">Não foi possível carregar os usuários agora.</div>`;
+    }
+  }
+
+  load();
+  return panel;
+}
+
 /* ===================== Export / Import ===================== */
 
 function exportStoreCSV(storeKey) {
@@ -2801,7 +2965,57 @@ async function startApp() {
   renderNav();
   renderContent();
   renderBrand();
+  renderAccountBadge();
   applySidebarState();
+}
+
+function renderAccountBadge() {
+  const hint = document.getElementById("current-user-hint");
+  if (!hint) return;
+
+  const email = window.userEmail || "";
+
+  if (window.isAdmin) {
+    hint.innerHTML = `
+      <span class="account-email">${escapeHtml(email)} · admin</span>
+      <span class="account-access premium">👑 Premium</span>
+    `;
+    return;
+  }
+
+  if (!window.trialEndsAt) {
+    hint.innerHTML = `
+      <span class="account-email">${escapeHtml(email)}</span>
+      <span class="account-access premium">👑 Premium</span>
+    `;
+    return;
+  }
+
+  const trialDate = new Date(window.trialEndsAt);
+  const diasRestantes = Math.ceil((trialDate - new Date()) / (1000 * 60 * 60 * 24));
+
+  if (window.hasAccess) {
+    hint.innerHTML = `
+      <span class="account-email">${escapeHtml(email)}</span>
+      <span class="account-access trial">🕐 Trial: ${diasRestantes} dia${diasRestantes === 1 ? "" : "s"} restante${diasRestantes === 1 ? "" : "s"}</span>
+    `;
+  } else {
+    hint.innerHTML = `
+      <span class="account-email">${escapeHtml(email)}</span>
+      <span class="account-access expired">Trial expirado — <a href="#" id="account-upgrade-link">torne-se premium</a></span>
+    `;
+    const link = document.getElementById("account-upgrade-link");
+    if (link) link.addEventListener("click", e => { e.preventDefault(); requestPremium(); });
+  }
+}
+
+async function requestPremium() {
+  try {
+    await fetch("/api/request-premium", { method: "POST" });
+  } catch (e) {
+    console.error(e);
+  }
+  alert("Pedido enviado! O administrador foi avisado e vai entrar em contato em breve.");
 }
 
 window.startApp = startApp;

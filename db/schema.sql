@@ -10,8 +10,15 @@ create table if not exists users (
   password_hash text not null,
   status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
   created_at timestamptz not null default now(),
-  approved_at timestamptz
+  approved_at timestamptz,
+  trial_ends_at timestamptz,
+  blocked_at timestamptz
 );
+
+-- Se você já rodou esse script antes (banco já existia), rode também estas duas linhas
+-- pra adicionar as colunas novas sem perder os dados:
+-- alter table users add column if not exists trial_ends_at timestamptz;
+-- alter table users add column if not exists blocked_at timestamptz;
 
 create table if not exists app_state (
   user_id uuid primary key references users(id) on delete cascade,
