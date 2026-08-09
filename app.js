@@ -228,7 +228,10 @@ function custosFixosGastoFiltered({ year, month } = {}) {
     .reduce((s, c) => s + n(c.valor), 0);
 }
 
-// procura, em todas as lojas (3D e Produtos), o pedido com esse número
+// procura, em todas as lojas (3D e Produtos), o pedido com esse número — usado só como
+// fallback (texto digitado à mão que não bate com nenhuma sugestão da lista); quando o mesmo
+// número existe em mais de uma loja/produto, ele pega o primeiro que encontrar (por isso a
+// devolução deveria, sempre que possível, estar vinculada por produtoId — ver findProductById)
 function findProductByOrderNumber(numeroPedido) {
   const needle = String(numeroPedido || "").trim().toLowerCase();
   if (!needle) return null;
@@ -239,6 +242,42 @@ function findProductByOrderNumber(numeroPedido) {
   return null;
 }
 
+// acha o produto exato pelo id da linha (id é único de verdade, ao contrário do Nº Pedido, que
+// a pessoa pode repetir sem querer entre lojas ou até dentro da mesma loja)
+function findProductById(produtoId) {
+  if (!produtoId) return null;
+  for (const meta of STORE_META) {
+    const found = state.stores[meta.key].find(r => r.id === produtoId);
+    if (found) return { row: found, storeKey: meta.key, storeLabel: meta.label, storeColor: meta.color };
+  }
+  return null;
+}
+
+// monta a lista de "produto — nº pedido (loja)" usada tanto pra sugestão (datalist) quanto pra
+// resolver o texto escolhido/digitado de volta pro produto exato
+function buildDevolucaoProductCatalog() {
+  const catalog = [];
+  STORE_META.forEach(meta => {
+    state.stores[meta.key].forEach(row => {
+      if (!row.numeroPedido) return;
+      const label = `${row.produto || "(sem nome)"} — ${row.numeroPedido} (${meta.label})`;
+      catalog.push({ label, row, storeKey: meta.key, storeLabel: meta.label, storeColor: meta.color });
+    });
+  });
+  return catalog;
+}
+
+// tenta casar o texto do campo Produto com um item exato do catálogo (isso é o que garante que
+// escolher "001 (TikTok Shop)" não puxe o "001" da Shopee); se não bater nada exato (texto
+// digitado à mão, fora da lista), cai pro casamento antigo só pelo número de pedido
+function resolveDevolucaoProduct(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  const exact = buildDevolucaoProductCatalog().find(item => item.label === raw);
+  if (exact) return exact;
+  return findProductByOrderNumber(raw);
+}
+
 // custo (impacto financeiro) de uma devolução:
 // - defeito de fabricação: não recebe nada, perde embalagem + gasto p/ levar + o valor de
 //   devolução informado no cadastro (campo editável, não é mais fixo em R$ 15)
@@ -247,7 +286,9 @@ function findProductByOrderNumber(numeroPedido) {
 // - arrependimento / não encontrou o cliente: só perde embalagem + gasto p/ levar (o produto
 //   volta inteiro e pode ser revendido, então o custo de produção não conta como perda)
 function calcDevolucao(dev) {
-  const match = findProductByOrderNumber(dev.numeroPedido);
+  // prioriza o vínculo exato por produtoId (novo formato, sem ambiguidade); só cai pro
+  // casamento por texto/número quando a devolução é antiga ou o texto não bateu com nada
+  const match = dev.produtoId ? findProductById(dev.produtoId) : resolveDevolucaoProduct(dev.numeroPedido);
   if (!match) return { match: null, custoTotal: null };
 
   const row = match.row;
@@ -265,12 +306,19 @@ function calcDevolucao(dev) {
   return { match, custoTotal };
 }
 
-// caminho inverso: dado um número de pedido, existe alguma devolução registrada pra ele?
-// usado dentro de calcRow() para que o Lucro do produto nas Lojas/Resumo/KPIs reflita a devolução
-function findDevolucaoByOrderNumber(numeroPedido) {
-  const needle = String(numeroPedido || "").trim().toLowerCase();
+// caminho inverso: dado um produto (linha), existe alguma devolução registrada pra ele?
+// usado dentro de calcRow() para que o Lucro do produto nas Lojas/Resumo/KPIs reflita a devolução.
+// prioriza o vínculo exato por produtoId; só cai pro casamento por número de pedido "cru" pra
+// devoluções antigas (sem produtoId) — e mesmo assim só compara com outras devoluções que
+// também não têm produtoId, pra não confundir com uma devolução já vinculada a outro produto
+// que por acaso tenha o mesmo número de pedido em outra loja
+function findDevolucaoForRow(row) {
+  if (!row) return null;
+  const byId = state.devolucoes.find(d => d.produtoId && d.produtoId === row.id);
+  if (byId) return byId;
+  const needle = String(row.numeroPedido || "").trim().toLowerCase();
   if (!needle) return null;
-  return state.devolucoes.find(d => String(d.numeroPedido || "").trim().toLowerCase() === needle) || null;
+  return state.devolucoes.find(d => !d.produtoId && String(d.numeroPedido || "").trim().toLowerCase() === needle) || null;
 }
 
 // junta os produtos de todas as lojas num só array, marcando de qual loja cada um veio
@@ -518,7 +566,7 @@ function calcRow(row) {
   // - defeito sem sub-tipo escolhido ainda: mantém o cálculo normal até você completar o cadastro
   // - arrependimento / não encontrou o cliente: você não recebe nada pela venda — só perde
   //   o que já gastou com embalagem, frete e etiqueta (o produto volta inteiro e pode ser revendido)
-  const devolucao = row.numeroPedido ? findDevolucaoByOrderNumber(row.numeroPedido) : null;
+  const devolucao = findDevolucaoForRow(row);
 
   let lucro, margem;
   if (devolucao && devolucao.categoria === "defeito" && devolucao.subtipoDefeito === "danificado") {
@@ -1827,7 +1875,7 @@ function renderDevolucoesPanel() {
     <header class="panel-header">
       <div>
         <h1 class="page-title">Devoluções</h1>
-        <p class="panel-sub">Selecione o produto pelo pedido (igual ao seletor de filamentos). O Lucro desse pedido nas telas de Lojas, Resumo e KPIs é atualizado sozinho: em "Danificado: Pago pela plataforma" você recebe o valor completo, normalmente, sem custo extra; em "Defeito de fabricação" você não recebe nada e perde embalagem + gasto p/ levar + etiqueta (R$ 0,10) + o valor de devolução que você informar; em arrependimento ou pedido não encontrado, você não recebe nada e só perde embalagem + gasto p/ levar + etiqueta.</p>
+        <p class="panel-sub">Escolha o produto na lista de sugestões ou digite direto (nome ou Nº do pedido). O Lucro desse pedido nas telas de Lojas, Resumo e KPIs é atualizado sozinho: em "Danificado: Pago pela plataforma" você recebe o valor completo, normalmente, sem custo extra; em "Defeito de fabricação" você não recebe nada e perde embalagem + gasto p/ levar + etiqueta (R$ 0,10) + o valor de devolução que você informar; em arrependimento ou pedido não encontrado, você não recebe nada e só perde embalagem + gasto p/ levar + etiqueta.</p>
       </div>
       <div class="panel-actions">
         <button class="primary-btn" data-action="add-row">+ Nova devolução</button>
@@ -1874,6 +1922,12 @@ function renderDevolucoesPanel() {
     </thead>
     <tbody></tbody>
   `;
+  // datalist com sugestões de produto (nome — nº pedido (loja)) — o campo continua sendo um
+  // texto normal, então dá pra digitar qualquer coisa também, não só escolher da lista
+  const datalist = document.createElement("datalist");
+  datalist.id = "devolucao-produto-suggestions";
+  datalist.innerHTML = buildDevolucaoProductCatalog().map(item => `<option value="${escapeAttr(item.label)}"></option>`).join("");
+  tableWrap.appendChild(datalist);
   const tbody = table.querySelector("tbody");
 
   if (rows.length === 0) {
@@ -1889,7 +1943,7 @@ function renderDevolucoesPanel() {
 
   panel.querySelector('[data-action="add-row"]').addEventListener("click", () => {
     state.devolucoes.push({
-      id: uid(), example: false, numeroPedido: "", categoria: "", subtipoDefeito: "", valorDevolucao: "",
+      id: uid(), example: false, numeroPedido: "", produtoId: null, categoria: "", subtipoDefeito: "", valorDevolucao: "",
       data: new Date().toISOString().slice(0, 10),
     });
     saveState();
@@ -1897,20 +1951,6 @@ function renderDevolucoesPanel() {
   });
 
   return panel;
-}
-
-// lista de produtos (de todas as lojas, 3D e Produtos) que já têm Nº Pedido preenchido —
-// é essa lista que alimenta o seletor de Produto na aba Devoluções, igual ao de filamentos
-function buildDevolucaoProductOptions(selectedNumeroPedido) {
-  const options = ['<option value="">— selecione o produto —</option>'];
-  STORE_META.forEach(meta => {
-    state.stores[meta.key].forEach(row => {
-      if (!row.numeroPedido) return;
-      const label = `${row.produto || "(sem nome)"} — ${row.numeroPedido} (${meta.label})`;
-      options.push(`<option value="${escapeAttr(row.numeroPedido)}" ${row.numeroPedido === selectedNumeroPedido ? "selected" : ""}>${escapeHtml(label)}</option>`);
-    });
-  });
-  return options.join("");
 }
 
 function devolucaoRow(dev) {
@@ -1933,7 +1973,7 @@ function devolucaoRow(dev) {
     : `<span class="devolucao-subtipo-vazio">—</span>`;
 
   tr.innerHTML = `
-    <td class="col-produto"><select data-field="numeroPedido">${buildDevolucaoProductOptions(dev.numeroPedido)}</select></td>
+    <td class="col-produto"><input type="text" list="devolucao-produto-suggestions" maxlength="120" value="${escapeAttr(dev.numeroPedido || "")}" data-field="numeroPedido" placeholder="Nº do pedido ou nome do produto"></td>
     <td data-out="loja">—</td>
     <td><select data-field="categoria">${catOptions}</select></td>
     <td data-cell="subtipo">${subtipoCell}</td>
@@ -1969,7 +2009,18 @@ function devolucaoRow(dev) {
     updateDevolucaoRowCalcCells(tr, dev);
   });
 
-  tr.querySelectorAll('input[data-field]:not([data-field="data"]), select[data-field]:not([data-field="categoria"]):not([data-field="subtipoDefeito"])').forEach(el => {
+  // campo de produto: aceita digitação livre, mas também tenta casar com uma sugestão exata
+  // da lista pra gravar o produtoId (vínculo sem ambiguidade — ver resolveDevolucaoProduct)
+  const produtoEl = tr.querySelector('[data-field="numeroPedido"]');
+  produtoEl.addEventListener("input", () => {
+    dev.numeroPedido = produtoEl.value;
+    const resolved = resolveDevolucaoProduct(produtoEl.value);
+    dev.produtoId = resolved ? resolved.row.id : null;
+    saveState();
+    updateDevolucaoRowCalcCells(tr, dev);
+  });
+
+  tr.querySelectorAll('input[data-field]:not([data-field="data"]):not([data-field="numeroPedido"]), select[data-field]:not([data-field="categoria"]):not([data-field="subtipoDefeito"])').forEach(el => {
     el.addEventListener("input", () => {
       const field = el.dataset.field;
       if (field === "valorDevolucao") clampNegativeInput(el);
@@ -2276,7 +2327,7 @@ function renderKpisPanel() {
     faturamento += n(row.precoVenda);
     custoTotal += c.custoTotal;
     lucro += c.lucro !== null ? c.lucro : 0;
-    if (row.numeroPedido && findDevolucaoByOrderNumber(row.numeroPedido)) devolvidos++;
+    if (findDevolucaoForRow(row)) devolvidos++;
   });
 
   // o que foi pago em ADS no mesmo período/loja filtrados também conta como custo e reduz o lucro
