@@ -345,6 +345,13 @@ function hasVal(v) {
   return v !== "" && v !== null && v !== undefined && !isNaN(parseFloat(v));
 }
 
+// Um produto só conta como "vendido de verdade" (entra no Faturamento, Custo Total e Lucro
+// dos totais) quando tem preço de venda E valor recebido preenchidos — antes disso é só um
+// produto cadastrado/planejado, ainda sem venda concluída.
+function isRowSold(row) {
+  return hasVal(row.precoVenda) && hasVal(row.recebido);
+}
+
 function fmtCurrency(v) {
   return "R$ " + v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -1219,8 +1226,24 @@ function bindRowInputs(tr, row) {
     }
     const evt = el.type === "checkbox" ? "change" : "input";
     el.addEventListener(evt, () => {
-      if (ROW_NON_NEGATIVE_FIELDS.has(el.dataset.field)) clampNegativeInput(el);
-      row[el.dataset.field] = el.value;
+      const field = el.dataset.field;
+      if (ROW_NON_NEGATIVE_FIELDS.has(field)) clampNegativeInput(el);
+
+      // Recebido nunca pode passar do preço de venda (a plataforma desconta, nunca paga a mais).
+      if (field === "recebido" && hasVal(row.precoVenda) && el.value !== "" && n(el.value) > n(row.precoVenda)) {
+        el.value = row.precoVenda;
+      }
+
+      row[field] = el.value;
+
+      // Se o preço de venda foi reduzido abaixo do que já estava marcado como recebido,
+      // puxa o recebido junto pra manter essa regra válida também nesse sentido.
+      if (field === "precoVenda" && hasVal(row.recebido) && n(row.recebido) > n(row.precoVenda)) {
+        row.recebido = row.precoVenda;
+        const recebidoInput = tr.querySelector('[data-field="recebido"]');
+        if (recebidoInput) recebidoInput.value = row.recebido;
+      }
+
       saveState();
       updateRowCalcCells(tr, row);
     });
@@ -2003,18 +2026,20 @@ function renderResumoPanel() {
     <header class="panel-header">
       <div>
         <h1 class="page-title">Resumo — Todas as Lojas</h1>
-        <p class="panel-sub">Totais calculados automaticamente a partir de cada loja.</p>
+        <p class="panel-sub">Totais calculados automaticamente a partir de cada loja. Só entram produtos com preço de venda e valor recebido preenchidos — ou seja, vendas concluídas de verdade.</p>
       </div>
     </header>
   `;
 
   const totals = STORE_META.map(meta => {
     const rows = state.stores[meta.key];
-    let faturamento = 0, recebido = 0, custoTotal = 0, lucro = 0;
+    let faturamento = 0, recebido = 0, custoTotal = 0, lucro = 0, vendidos = 0;
     rows.forEach(row => {
+      if (!isRowSold(row)) return;
       const c = calcRow(row);
+      vendidos++;
       faturamento += n(row.precoVenda);
-      recebido += hasVal(row.recebido) ? n(row.recebido) : 0;
+      recebido += n(row.recebido);
       custoTotal += c.custoTotal;
       lucro += c.lucro !== null ? c.lucro : 0;
     });
@@ -2022,7 +2047,7 @@ function renderResumoPanel() {
     const gastoAds = adsGastoFiltered({ store: meta.key });
     lucro -= gastoAds;
     const margem = faturamento ? lucro / faturamento : null;
-    return { meta, faturamento, recebido, custoTotal, gastoAds, lucro, margem, count: rows.length };
+    return { meta, faturamento, recebido, custoTotal, gastoAds, lucro, margem, count: vendidos };
   });
 
   const grid = document.createElement("div");
@@ -2034,7 +2059,7 @@ function renderResumoPanel() {
     card.innerHTML = `
       <div class="label">${t.meta.label}</div>
       <div class="value">${fmtCurrency(t.lucro)}</div>
-      <div class="sub">lucro líquido (já descontando ADS) · ${t.count} produto(s)</div>
+      <div class="sub">lucro líquido (já descontando ADS) · ${t.count} vendido(s)</div>
     `;
     grid.appendChild(card);
   });
@@ -2173,8 +2198,9 @@ function renderKpisPanel() {
   const panel = document.createElement("section");
   panel.className = "panel";
 
-  // só entram nos KPIs pedidos reais (sem os produtos de exemplo) com data preenchida
-  const kpiRowsAll = allRows().filter(r => !r.example && r.data);
+  // só entram nos KPIs pedidos reais (sem os produtos de exemplo), com data preenchida e
+  // venda concluída (preço de venda + valor recebido preenchidos)
+  const kpiRowsAll = allRows().filter(r => !r.example && r.data && isRowSold(r));
 
   if (kpiState.store && !STORE_META.some(s => s.key === kpiState.store)) kpiState.store = "";
   const kpiRows = kpiState.store ? kpiRowsAll.filter(r => r._storeKey === kpiState.store) : kpiRowsAll;
@@ -2202,7 +2228,7 @@ function renderKpisPanel() {
     <header class="panel-header">
       <div>
         <h1 class="page-title">KPIs — Análise de Vendas</h1>
-        <p class="panel-sub">Baseado nos pedidos com a coluna "Data" preenchida em cada loja. Produtos de exemplo não entram na conta.</p>
+        <p class="panel-sub">Baseado nos pedidos com "Data" preenchida e venda concluída (preço de venda + valor recebido). Produtos de exemplo não entram na conta.</p>
       </div>
       <div class="panel-actions">
         <select id="kpi-store">${storeOptions}</select>
@@ -2891,15 +2917,17 @@ function renderTicketsPanel() {
       list.className = "tickets-list";
 
       tickets.forEach(t => {
+        const awaitingReply = t.status === "open" && t.last_message_sender === "user";
         const card = document.createElement("div");
-        card.className = "ticket-card" + (t.status === "closed" ? " closed" : "");
+        card.className = "ticket-card" + (t.status === "closed" ? " closed" : "") + (awaitingReply ? " awaiting" : "");
         card.innerHTML = `
           <div class="ticket-card-header">
             <div>
               <strong>${escapeHtml(t.user_email)}</strong>
               <span class="ticket-status ${t.status}">${t.status === "open" ? "Aberto" : "Resolvido"}</span>
+              ${awaitingReply ? `<span class="ticket-status awaiting">✉ Aguardando resposta</span>` : ""}
             </div>
-            <span class="ticket-date">${fmtData(t.created_at)}</span>
+            <span class="ticket-date">${fmtData(t.last_message_at || t.created_at)}</span>
           </div>
           ${t.subject ? `<p class="ticket-subject">${escapeHtml(t.subject)}</p>` : ""}
           <div class="row-actions"></div>
@@ -3162,15 +3190,17 @@ async function openSupportModal() {
     const list = document.createElement("div");
     list.className = "tickets-list";
     tickets.forEach(t => {
+      const newReply = t.status === "open" && t.last_message_sender === "admin";
       const card = document.createElement("div");
-      card.className = "ticket-card" + (t.status === "closed" ? " closed" : "");
+      card.className = "ticket-card" + (t.status === "closed" ? " closed" : "") + (newReply ? " awaiting" : "");
       card.innerHTML = `
         <div class="ticket-card-header">
           <div>
             <strong>${escapeHtml(t.subject || "(sem assunto)")}</strong>
             <span class="ticket-status ${t.status}">${t.status === "open" ? "Aberto" : "Resolvido"}</span>
+            ${newReply ? `<span class="ticket-status awaiting">✉ Nova resposta</span>` : ""}
           </div>
-          <span class="ticket-date">${new Date(t.created_at).toLocaleString("pt-BR")}</span>
+          <span class="ticket-date">${new Date(t.last_message_at || t.created_at).toLocaleString("pt-BR")}</span>
         </div>
         <div class="ticket-thread-slot"></div>
       `;
@@ -3295,6 +3325,7 @@ function showToast(msg) {
 // guardado no localStorage pra sobreviver a um F5 e não tocar som pra conversa antiga.
 
 const TICKET_SEEN_KEY_PREFIX = "gl_ticket_seen_";
+const TICKET_BOOTSTRAP_KEY = "gl_ticket_notify_bootstrapped";
 
 function getTicketSeenAt(ticketId) {
   try { return localStorage.getItem(TICKET_SEEN_KEY_PREFIX + ticketId); } catch (e) { return null; }
@@ -3344,20 +3375,39 @@ async function pollTicketNotifications(opts) {
     const otherSender = isAdmin ? "user" : "admin";
     const updated = [];
 
+    // Só a primeiríssima checagem desse navegador (desde que esse recurso existe) é "muda":
+    // estabelece a linha de base sem avisar, pra não disparar som por causa de conversa que
+    // já existia antes. A partir da segunda checagem em diante, qualquer ticket novo (que
+    // ainda não tem registro de "visto") ou mensagem nova já conta como novidade de verdade
+    // — inclusive um ticket criado agora mesmo, que é exatamente o caso que queremos avisar.
+    let bootstrapped = true;
+    try { bootstrapped = localStorage.getItem(TICKET_BOOTSTRAP_KEY) === "1"; } catch (e) {}
+
     tickets.forEach(t => {
-      if (!t.last_message_at || t.last_message_sender !== otherSender) return;
+      if (!t.last_message_at) return;
       const seen = getTicketSeenAt(t.id);
-      if (!seen) {
-        // Primeira vez que esse navegador vê esse ticket — marca como visto sem avisar,
-        // pra não disparar som por causa de conversa que já existia antes.
+
+      if (!bootstrapped) {
         setTicketSeenAt(t.id, t.last_message_at);
         return;
       }
-      if (new Date(t.last_message_at) > new Date(seen)) {
+
+      if (t.last_message_sender !== otherSender) {
+        // Não é "do outro lado", mas ainda assim atualiza a régua de comparação se avançou,
+        // senão uma mensagem sua/dele mais antiga pode contar como "nova" depois.
+        if (!seen || new Date(t.last_message_at) > new Date(seen)) setTicketSeenAt(t.id, t.last_message_at);
+        return;
+      }
+
+      if (!seen || new Date(t.last_message_at) > new Date(seen)) {
         updated.push(t);
         setTicketSeenAt(t.id, t.last_message_at);
       }
     });
+
+    if (!bootstrapped) {
+      try { localStorage.setItem(TICKET_BOOTSTRAP_KEY, "1"); } catch (e) {}
+    }
 
     if (updated.length > 0) {
       playNotificationSound();

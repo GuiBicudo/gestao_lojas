@@ -1,6 +1,5 @@
 const { sql } = require("./_db");
 const { getSessionFromEvent, json } = require("./_auth");
-const { sendMail } = require("./_email");
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { error: "method_not_allowed" });
@@ -29,18 +28,8 @@ exports.handler = async (event) => {
   // Administração mostrarem tudo (inclusive o texto inicial) na mesma thread.
   await sql`insert into ticket_messages (ticket_id, sender, message) values (${ticket.id}, 'user', ${message})`;
 
-  try {
-    await sendMail({
-      to: process.env.OWNER_EMAIL,
-      subject: "Novo ticket de suporte — Gestão de Lojas",
-      html: `<p><strong>${session.email}</strong> abriu um ticket:</p>
-             <p><strong>Assunto:</strong> ${subject || "(sem assunto)"}</p>
-             <p><strong>Mensagem:</strong><br>${message.replace(/\n/g, "<br>")}</p>
-             <p>Entre no sistema e acesse a aba "Tickets" para responder.</p>`,
-    });
-  } catch (e) {
-    console.error("[create-ticket] falha ao enviar e-mail:", e);
-  }
+  // Sem e-mail aqui de propósito: o aviso de ticket novo/mensagem nova é só dentro do
+  // sistema (som + destaque na aba Tickets). E-mail fica reservado pra cadastro de conta.
 
   return json(200, { ok: true, ticket });
 };

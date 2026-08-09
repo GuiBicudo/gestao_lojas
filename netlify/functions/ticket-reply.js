@@ -36,8 +36,11 @@ exports.handler = async (event) => {
 
   await sql`insert into ticket_messages (ticket_id, sender, message) values (${ticketId}, ${sender}, ${message})`;
 
-  try {
-    if (isAdmin) {
+  // Só avisa por e-mail quando é o ADMIN respondendo (o usuário precisa saber, já que ele
+  // pode não estar com o site aberto). Resposta do usuário pro admin não manda e-mail —
+  // fica só o aviso dentro do sistema (som + destaque na aba Tickets).
+  if (isAdmin) {
+    try {
       const [target] = await sql`select email from users where id = ${ticket.user_id}`;
       if (target) {
         await sendMail({
@@ -46,15 +49,9 @@ exports.handler = async (event) => {
           html: `<p>O administrador respondeu seu ticket:</p><p>${message.replace(/\n/g, "<br>")}</p>`,
         });
       }
-    } else {
-      await sendMail({
-        to: process.env.OWNER_EMAIL,
-        subject: "Nova resposta em um ticket — Gestão de Lojas",
-        html: `<p><strong>${session.email}</strong> respondeu um ticket:</p><p>${message.replace(/\n/g, "<br>")}</p>`,
-      });
+    } catch (e) {
+      console.error("[ticket-reply] falha ao enviar e-mail:", e);
     }
-  } catch (e) {
-    console.error("[ticket-reply] falha ao enviar e-mail:", e);
   }
 
   return json(200, { ok: true });

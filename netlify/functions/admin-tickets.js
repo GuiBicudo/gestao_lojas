@@ -12,7 +12,7 @@ exports.handler = async (event) => {
            (select sender from ticket_messages where ticket_id = t.id order by created_at desc limit 1) as last_message_sender
     from tickets t
     join users u on u.id = t.user_id
-    order by (t.status = 'open') desc, t.created_at desc
+    order by (t.status = 'open') desc, (last_message_sender = 'user') desc, last_message_at desc nulls last, t.created_at desc
   `;
 
   return json(200, { tickets: rows });
