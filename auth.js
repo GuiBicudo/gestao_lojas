@@ -241,7 +241,7 @@ async function renderBlockedGate(opts) {
   area.innerHTML = `
     <form id="blocked-ticket-form" class="auth-form">
       <label>Assunto (opcional)<input type="text" id="blocked-ticket-subject" maxlength="200"></label>
-      <label>Mensagem<textarea id="blocked-ticket-message" required rows="4" style="width:100%; font-family:inherit; padding:8px; border-radius:8px;"></textarea></label>
+      <label>Mensagem<textarea id="blocked-ticket-message" required maxlength="256" rows="4" style="width:100%; font-family:inherit; padding:8px; border-radius:8px;"></textarea></label>
       <button type="submit" class="primary-btn" id="blocked-ticket-submit">Enviar ticket</button>
     </form>
   `;

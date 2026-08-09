@@ -16,7 +16,7 @@ exports.handler = async (event) => {
   }
 
   const { ticketId } = body;
-  const message = (body.message || "").trim();
+  const message = (body.message || "").trim().slice(0, 256);
   if (!ticketId || !message) return json(400, { error: "ticketId e message são obrigatórios." });
 
   const [ticket] = await sql`select id, user_id, status from tickets where id = ${ticketId}`;

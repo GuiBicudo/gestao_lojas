@@ -15,7 +15,7 @@ exports.handler = async (event) => {
   }
 
   const subject = (body.subject || "").trim().slice(0, 200);
-  const message = (body.message || "").trim();
+  const message = (body.message || "").trim().slice(0, 256);
   if (!message) return json(400, { error: "Escreva uma mensagem antes de enviar." });
 
   const [ticket] = await sql`

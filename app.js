@@ -3046,7 +3046,7 @@ async function renderTicketThread(container, ticket, opts) {
   const form = document.createElement("form");
   form.className = "ticket-reply-form";
   form.innerHTML = `
-    <textarea placeholder="Escrever uma resposta..." rows="2" required></textarea>
+    <textarea placeholder="Escrever uma resposta..." rows="2" maxlength="256" required></textarea>
     <button type="submit" class="primary-btn small">Enviar</button>
   `;
   const textarea = form.querySelector("textarea");
@@ -3099,13 +3099,21 @@ function renderFloatingTicketButton() {
   btn.id = "floating-ticket-btn";
   btn.className = "floating-ticket-btn";
   btn.title = "Falar com o suporte";
-  btn.textContent = "💬";
+  btn.innerHTML = `💬<span class="floating-ticket-badge" id="floating-ticket-badge" hidden>!</span>`;
   btn.addEventListener("click", () => openSupportModal());
   document.body.appendChild(btn);
 }
 
+// Mostra/esconde o "!" no botão flutuante — usado em vez de toast pro usuário, porque o
+// toast some rápido demais e a pessoa não via que tinha resposta nova.
+function setFloatingTicketBadge(show) {
+  const badge = document.getElementById("floating-ticket-badge");
+  if (badge) badge.hidden = !show;
+}
+
 async function openSupportModal() {
   if (document.getElementById("ticket-modal-backdrop")) return;
+  setFloatingTicketBadge(false);
 
   const backdrop = document.createElement("div");
   backdrop.id = "ticket-modal-backdrop";
@@ -3125,7 +3133,7 @@ async function openSupportModal() {
     modalBody.innerHTML = `
       <form id="ticket-modal-form" class="auth-form">
         <label>Assunto (opcional)<input type="text" id="ticket-modal-subject" maxlength="200"></label>
-        <label>Mensagem<textarea id="ticket-modal-message" required rows="4" style="width:100%; font-family:inherit; padding:8px; border-radius:8px;"></textarea></label>
+        <label>Mensagem<textarea id="ticket-modal-message" required maxlength="256" rows="4" style="width:100%; font-family:inherit; padding:8px; border-radius:8px;"></textarea></label>
         <div class="row-actions" style="justify-content:flex-end;">
           <button type="button" class="ghost-btn small" id="ticket-modal-cancel">Cancelar</button>
           <button type="submit" class="primary-btn small" id="ticket-modal-submit">Enviar</button>
@@ -3416,7 +3424,9 @@ async function pollTicketNotifications(opts) {
           ? `✉ Nova mensagem de ${updated[0].user_email} no ticket`
           : `✉ Novas mensagens em ${updated.length} tickets`);
       } else {
-        showToast("✉ O administrador respondeu seu ticket");
+        // Pro usuário, sem toast (sumia rápido demais e passava despercebido) — só o "!"
+        // no botão flutuante, que fica até ele abrir o suporte e ver a resposta.
+        setFloatingTicketBadge(true);
       }
       if (opts.onNewMessages) opts.onNewMessages(updated);
     }
