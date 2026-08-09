@@ -2973,6 +2973,28 @@ function renderTicketsPanel() {
         });
         actions.appendChild(btnStatus);
 
+        const btnDelete = document.createElement("button");
+        btnDelete.className = "ghost-btn small";
+        btnDelete.textContent = "Excluir";
+        btnDelete.addEventListener("click", async () => {
+          if (!confirm(`Excluir esse ticket de ${t.user_email} e toda a conversa? Não dá pra desfazer.`)) return;
+          btnDelete.disabled = true;
+          try {
+            const res = await fetch("/api/admin-ticket-action", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ticketId: t.id, action: "delete" }),
+            });
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            load();
+          } catch (e) {
+            console.error(e);
+            showToast("⚠ Não foi possível excluir o ticket.");
+            btnDelete.disabled = false;
+          }
+        });
+        actions.appendChild(btnDelete);
+
         list.appendChild(card);
       });
 

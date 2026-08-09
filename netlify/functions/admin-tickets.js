@@ -1,9 +1,12 @@
 const { sql } = require("./_db");
 const { getSessionFromEvent, isOwnerEmail, json } = require("./_auth");
+const { cleanupExpiredTickets } = require("./_ticketCleanup");
 
 exports.handler = async (event) => {
   const session = getSessionFromEvent(event);
   if (!session || !isOwnerEmail(session.email)) return json(403, { error: "forbidden" });
+
+  await cleanupExpiredTickets();
 
   // Precisa envolver num subselect: "last_message_sender" é um apelido calculado, e o
   // Postgres não deixa usar apelido dentro de uma expressão no ORDER BY (só como nome puro),

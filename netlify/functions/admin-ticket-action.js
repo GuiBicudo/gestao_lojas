@@ -21,6 +21,9 @@ exports.handler = async (event) => {
     await sql`update tickets set status = 'closed', closed_at = now() where id = ${ticketId}`;
   } else if (action === "reopen") {
     await sql`update tickets set status = 'open', closed_at = null where id = ${ticketId}`;
+  } else if (action === "delete") {
+    // Apaga o ticket e, por causa do "on delete cascade", todas as mensagens dele junto.
+    await sql`delete from tickets where id = ${ticketId}`;
   } else {
     return json(400, { error: "Ação inválida." });
   }

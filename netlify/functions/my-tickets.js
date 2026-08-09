@@ -1,9 +1,12 @@
 const { sql } = require("./_db");
 const { getSessionFromEvent, json } = require("./_auth");
+const { cleanupExpiredTickets } = require("./_ticketCleanup");
 
 exports.handler = async (event) => {
   const session = getSessionFromEvent(event);
   if (!session) return json(401, { error: "not_authenticated" });
+
+  await cleanupExpiredTickets();
 
   const rows = await sql`
     select t.id, t.subject, t.status, t.created_at, t.closed_at,
