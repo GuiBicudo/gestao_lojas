@@ -56,6 +56,14 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
+// contas criadas antes desse recurso não têm "ramos" salvo ainda — trata como os dois
+// ramos ativos (era o comportamento fixo de antes), sem precisar de migração no banco
+function getRamos() {
+  const r = state.profile && state.profile.ramos;
+  if (!r || (!r.threeD && !r.produtos)) return { threeD: true, produtos: true };
+  return r;
+}
+
 function defaultState() {
   const fil1 = uid(), fil2 = uid(), fil3 = uid();
   const packA = uid(), packB = uid();
@@ -114,6 +122,9 @@ function defaultState() {
     profile: {
       nome: "Gestão de Lojas",
       icone: null,
+      // ramos do negócio: controla se as abas/seletor "Impressão 3D" e "Produtos"
+      // aparecem nas telas de Lojas e Precificação, e a frase embaixo do nome no menu
+      ramos: { threeD: true, produtos: true },
     },
     stores: {
       shopee: [exampleProduct3D(PRINTER_A1, fil1, "2026-06-15", "SHP-100234"), exampleProdutoRevenda("2026-06-20", "SHP-100311")],
@@ -1169,7 +1180,10 @@ function headProdutos() {
 
 function renderStorePanel(storeKey) {
   const meta = STORE_META.find(s => s.key === storeKey);
-  const is3D = storeViewType === "3d";
+  const ramos = getRamos();
+  // se só um ramo está ativo no Perfil, força a visão pra ele e some com o seletor —
+  // se os dois estão ativos, mantém o comportamento de sempre (seletor + escolha salva)
+  const is3D = !ramos.produtos ? true : !ramos.threeD ? false : storeViewType === "3d";
 
   const panel = document.createElement("section");
   panel.className = "panel";
@@ -1185,10 +1199,11 @@ function renderStorePanel(storeKey) {
         <button class="ghost-btn small" data-action="export-csv">Exportar CSV</button>
       </div>
     </header>
+    ${ramos.threeD && ramos.produtos ? `
     <div class="segmented" id="store-type-tabs">
       <button class="segmented-btn ${is3D ? "active" : ""}" data-type="3d">Impressão 3D</button>
       <button class="segmented-btn ${!is3D ? "active" : ""}" data-type="produtos">Produtos</button>
-    </div>
+    </div>` : ""}
     <div class="table-wrap">
       <table class="data-table store-table">
         <thead><tr>${is3D ? head3D() : headProdutos()}</tr></thead>
@@ -1491,7 +1506,8 @@ function headPricingProdutos() {
 }
 
 function renderPricingPanel() {
-  const is3D = pricingViewType === "3d";
+  const ramos = getRamos();
+  const is3D = !ramos.produtos ? true : !ramos.threeD ? false : pricingViewType === "3d";
   const listKey = is3D ? "threeD" : "produtos";
   const rows = state.pricing[listKey];
 
@@ -1507,10 +1523,11 @@ function renderPricingPanel() {
         <button class="primary-btn" data-action="add-row">+ Novo item${is3D ? " 3D" : ""}</button>
       </div>
     </header>
+    ${ramos.threeD && ramos.produtos ? `
     <div class="segmented" id="pricing-type-tabs">
       <button class="segmented-btn ${is3D ? "active" : ""}" data-type="3d">Impressão 3D</button>
       <button class="segmented-btn ${!is3D ? "active" : ""}" data-type="produtos">Produtos</button>
-    </div>
+    </div>` : ""}
     <div class="table-wrap">
       <table class="data-table">
         <thead><tr>${is3D ? headPricing3D() : headPricingProdutos()}</tr></thead>
@@ -2608,17 +2625,29 @@ function resizeImageToDataURL(file, maxSize) {
   });
 }
 
+// frase que aparece embaixo do nome no menu (e no título da aba do navegador),
+// de acordo com os ramos do negócio marcados no Perfil
+function ramosLabel() {
+  const ramos = getRamos();
+  if (ramos.threeD && ramos.produtos) return "Impressão 3D & Revenda";
+  if (ramos.threeD) return "Impressão 3D";
+  return "Revenda de Produtos";
+}
+
 function renderBrand() {
   const nameEl = document.querySelector(".brand-text strong");
+  const subEl = document.querySelector(".brand-text span");
   const markEl = document.querySelector(".brand-mark");
   const nome = (state.profile && state.profile.nome) || "Gestão de Lojas";
+  const ramos = ramosLabel();
   if (nameEl) nameEl.textContent = nome;
+  if (subEl) subEl.textContent = ramos;
   if (markEl) {
     markEl.innerHTML = state.profile && state.profile.icone
       ? `<img src="${state.profile.icone}" alt="Ícone" class="brand-icon-img">`
       : "◇";
   }
-  document.title = `${nome} — Impressão 3D`;
+  document.title = `${nome} — ${ramos}`;
 }
 
 function renderPerfilPanel() {
@@ -2626,11 +2655,12 @@ function renderPerfilPanel() {
   panel.className = "panel";
 
   const icone = state.profile.icone;
+  const ramos = getRamos();
   panel.innerHTML = `
     <header class="panel-header">
       <div>
         <h1 class="page-title">Perfil</h1>
-        <p class="panel-sub">Personalize o nome e o ícone que aparecem no menu lateral.</p>
+        <p class="panel-sub">Personalize o nome, o ícone e os ramos do negócio que aparecem no menu lateral.</p>
       </div>
     </header>
     <div class="param-grid">
@@ -2649,6 +2679,14 @@ function renderPerfilPanel() {
         <input type="text" class="text-field" id="profile-nome" value="${escapeAttr(state.profile.nome)}" placeholder="Ex: Minha Loja 3D">
         <p class="param-note">Esse nome aparece no topo do menu lateral.</p>
       </div>
+      <div class="param-card">
+        <label>Ramos do negócio</label>
+        <div class="ramos-options">
+          <label class="ramos-option"><input type="checkbox" id="ramo-3d" ${ramos.threeD ? "checked" : ""}> Impressão 3D</label>
+          <label class="ramos-option"><input type="checkbox" id="ramo-produtos" ${ramos.produtos ? "checked" : ""}> Produtos (Revenda)</label>
+        </div>
+        <p class="param-note">Controla quais abas aparecem em Lojas e Precificação, e a frase abaixo do nome no menu. Marque só o que você realmente trabalha.</p>
+      </div>
     </div>
   `;
 
@@ -2657,6 +2695,22 @@ function renderPerfilPanel() {
     saveState();
     renderBrand();
   });
+
+  const ramo3dEl = panel.querySelector("#ramo-3d");
+  const ramoProdutosEl = panel.querySelector("#ramo-produtos");
+  function onRamoChange(e) {
+    // não deixa desmarcar os dois — sempre precisa sobrar pelo menos um ramo ativo
+    if (!ramo3dEl.checked && !ramoProdutosEl.checked) {
+      const other = e.target === ramo3dEl ? ramoProdutosEl : ramo3dEl;
+      other.checked = true;
+      showToast("⚠ Marque pelo menos um ramo do negócio.");
+    }
+    state.profile.ramos = { threeD: ramo3dEl.checked, produtos: ramoProdutosEl.checked };
+    saveState();
+    renderBrand();
+  }
+  ramo3dEl.addEventListener("change", onRamoChange);
+  ramoProdutosEl.addEventListener("change", onRamoChange);
 
   panel.querySelector("#profile-icon-input").addEventListener("change", async e => {
     const file = e.target.files[0];
@@ -3299,7 +3353,8 @@ async function openSupportModal() {
 
 function exportStoreCSV(storeKey) {
   const meta = STORE_META.find(s => s.key === storeKey);
-  const is3D = storeViewType === "3d";
+  const ramos = getRamos();
+  const is3D = !ramos.produtos ? true : !ramos.threeD ? false : storeViewType === "3d";
   const rows = state.stores[storeKey].filter(r => is3D ? r.tipo !== TIPO_REVENDA : r.tipo === TIPO_REVENDA);
 
   const headers = is3D
@@ -3638,20 +3693,32 @@ function renderAccountBadge() {
   if (!hint) return;
 
   const email = window.userEmail || "";
+  const initial = escapeHtml((email.trim().charAt(0) || "?").toUpperCase());
+
+  // com o menu recolhido (só ícones) não cabe o texto todo — mostra só a inicial do
+  // e-mail num círculo e o ícone de status (coroinha/relógio/cadeado) centralizado, sem
+  // texto. Com o menu aberto continua exatamente como antes (e-mail completo + texto do
+  // status). O e-mail completo fica disponível no "title" (tooltip ao passar o mouse).
+  function render(emailLine, accessClass, accessIcon, accessLabelHtml) {
+    hint.innerHTML = `
+      <div class="account-compact" title="${escapeAttr(email)}">
+        <span class="account-avatar">${initial}</span>
+        <span class="account-access compact-icon ${accessClass}">${accessIcon}</span>
+      </div>
+      <div class="account-full">
+        <span class="account-email">${emailLine}</span>
+        <span class="account-access ${accessClass}">${accessIcon} ${accessLabelHtml}</span>
+      </div>
+    `;
+  }
 
   if (window.isAdmin) {
-    hint.innerHTML = `
-      <span class="account-email">${escapeHtml(email)} · admin</span>
-      <span class="account-access premium">👑 Premium</span>
-    `;
+    render(`${escapeHtml(email)} · admin`, "premium", "👑", "Premium");
     return;
   }
 
   if (!window.trialEndsAt) {
-    hint.innerHTML = `
-      <span class="account-email">${escapeHtml(email)}</span>
-      <span class="account-access premium">👑 Premium</span>
-    `;
+    render(escapeHtml(email), "premium", "👑", "Premium");
     return;
   }
 
@@ -3659,15 +3726,14 @@ function renderAccountBadge() {
   const diasRestantes = Math.ceil((trialDate - new Date()) / (1000 * 60 * 60 * 24));
 
   if (window.hasAccess) {
-    hint.innerHTML = `
-      <span class="account-email">${escapeHtml(email)}</span>
-      <span class="account-access trial">🕐 Trial: ${diasRestantes} dia${diasRestantes === 1 ? "" : "s"} restante${diasRestantes === 1 ? "" : "s"}</span>
-    `;
+    render(
+      escapeHtml(email),
+      "trial",
+      "🕐",
+      `Trial: ${diasRestantes} dia${diasRestantes === 1 ? "" : "s"} restante${diasRestantes === 1 ? "" : "s"}`
+    );
   } else {
-    hint.innerHTML = `
-      <span class="account-email">${escapeHtml(email)}</span>
-      <span class="account-access expired">Trial expirado — <a href="#" id="account-upgrade-link">torne-se premium</a></span>
-    `;
+    render(escapeHtml(email), "expired", "🔒", `Trial expirado — <a href="#" id="account-upgrade-link">torne-se premium</a>`);
     const link = document.getElementById("account-upgrade-link");
     if (link) link.addEventListener("click", e => { e.preventDefault(); requestPremium(); });
   }

@@ -290,6 +290,45 @@ html, body {
   cursor: pointer;
 }
 
+/* versão compacta (menu recolhido): só a inicial do e-mail num círculo + o ícone de
+   status centralizado, sem texto — a versão completa (e-mail + texto do status) some
+   nesse estado e volta a aparecer normalmente quando o menu é expandido de novo */
+.account-full {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.account-compact {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.account-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.account-access.compact-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.sidebar.collapsed .account-full { display: none; }
+.sidebar.collapsed .account-compact { display: flex; }
+
 .premium-lock {
   text-align: center;
   padding: 48px 24px;
@@ -904,6 +943,31 @@ input[data-field="peso"], input[data-field="tempo"] { width: auto; min-width: 76
 
 /* ---------- Perfil ---------- */
 
+.ramos-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.ramos-option {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 500 !important;
+  color: var(--ink) !important;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.ramos-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
 .profile-icon-preview {
   width: 64px;
   height: 64px;
@@ -1210,6 +1274,8 @@ input[data-field="peso"], input[data-field="tempo"] { width: auto; min-width: 76
   .sidebar.collapsed .nav-label,
   .sidebar.collapsed .btn-label { display: inline; }
   .sidebar.collapsed .sidebar-footer .hint { display: block; }
+  .sidebar.collapsed .account-full { display: flex; }
+  .sidebar.collapsed .account-compact { display: none; }
   .sidebar.collapsed .nav { padding: 6px 12px 10px; }
   .sidebar.collapsed .nav-item { justify-content: flex-start; padding: 9px 10px; }
   .sidebar.collapsed .sidebar-footer { padding: 14px 16px 18px; }
