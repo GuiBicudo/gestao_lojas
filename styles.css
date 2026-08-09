@@ -327,11 +327,20 @@ html, body {
 .ghost-btn.small { padding: 7px 12px; font-size: 12px; }
 .primary-btn.small { padding: 6px 12px; font-size: 12px; }
 
+.row-actions .ghost-btn.small,
+.row-actions .primary-btn.small,
 table.data-table td .ghost-btn.small,
 table.data-table td .primary-btn.small {
   display: inline-flex;
   width: auto;
   vertical-align: middle;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 table.data-table td.row-actions,
@@ -602,6 +611,14 @@ td.num, td.calc-cell {
 .devolucao-not-found {
   color: var(--bad);
   font-style: italic;
+}
+
+.stock-warning {
+  color: var(--bad) !important;
+  background: var(--bad-soft);
+  font-weight: 700;
+  border-radius: 6px;
+  cursor: help;
 }
 
 .devolucao-subtipo-vazio {
@@ -1025,9 +1042,75 @@ input[data-field="peso"], input[data-field="tempo"] { width: auto; min-width: 76
   padding: 20px;
   width: 100%;
   max-width: 420px;
+  max-height: 85vh;
+  overflow-y: auto;
   box-shadow: 0 20px 50px rgba(0,0,0,0.3);
 }
 .ticket-modal h3 { margin: 0 0 12px; font-family: var(--font-display); color: var(--ink); }
+
+/* ---------- Conversa de ticket (bolhas) ---------- */
+
+.ticket-thread-slot { margin-top: 4px; }
+
+.ticket-thread {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  margin-top: 8px;
+}
+
+.ticket-bubbles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-bottom: 10px;
+}
+
+.ticket-bubble {
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--table-head-bg);
+  align-self: flex-start;
+}
+.ticket-bubble.mine {
+  align-self: flex-end;
+  background: var(--accent-soft);
+}
+
+.ticket-bubble-meta {
+  font-size: 10px;
+  color: var(--ink-faint);
+  margin-bottom: 2px;
+}
+.ticket-bubble.mine .ticket-bubble-meta { color: var(--accent-ink); opacity: 0.75; }
+
+.ticket-bubble-text {
+  font-size: 13px;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ticket-bubble.mine .ticket-bubble-text { color: var(--accent-ink); }
+
+.ticket-reply-form {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.ticket-reply-form textarea {
+  flex: 1;
+  font-family: inherit;
+  font-size: 12.5px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg-panel);
+  color: var(--ink);
+  resize: vertical;
+}
 
 @media (max-width: 880px) {
   .app { flex-direction: column; }

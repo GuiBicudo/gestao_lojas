@@ -729,9 +729,9 @@ function filamentRow(f) {
   if (f.obs && f.obs.includes("exemplo")) tr.classList.add("example-row");
   tr.innerHTML = `
     <td><input type="text" value="${escapeAttr(f.nome)}" data-field="nome" placeholder="Ex: PLA Vermelho"></td>
-    <td class="num"><input type="number" step="0.01" value="${f.preco}" data-field="preco"></td>
+    <td class="num"><input type="number" step="0.01" min="0" value="${f.preco}" data-field="preco"></td>
     <td class="num"><input type="number" step="1" min="0" value="${f.pecas}" data-field="pecas" title="Quantas peças/rolos você comprou"></td>
-    <td class="num"><input type="number" step="1" min="0" value="${f.pesoPeca}" data-field="pesoPeca" title="Peso de cada peça/rolo, em gramas"></td>
+    <td class="num"><input type="number" step="1" min="0" max="1500" value="${f.pesoPeca}" data-field="pesoPeca" title="Peso de cada peça/rolo, em gramas (máximo 1500 g)"></td>
     <td class="num calc-cell" data-out="estoqueComprado">—</td>
     <td class="num calc-cell" data-out="estoqueConsumido">—</td>
     <td class="num calc-cell" data-out="estoqueAtual">—</td>
@@ -744,14 +744,33 @@ function filamentRow(f) {
     tr.querySelector('[data-out="estoqueComprado"]').textContent = `${s.comprado.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} g`;
     tr.querySelector('[data-out="estoqueConsumido"]').textContent = `${s.consumido.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} g`;
     const atualCell = tr.querySelector('[data-out="estoqueAtual"]');
-    atualCell.textContent = `${s.atual.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} g`;
-    atualCell.classList.toggle("devolucao-not-found", s.atual < 0);
+    const falta = s.atual < 0;
+    atualCell.textContent = `${falta ? "⚠ " : ""}${s.atual.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} g`;
+    atualCell.classList.toggle("stock-warning", falta);
+    atualCell.title = falta
+      ? "Estoque insuficiente: os produtos cadastrados consomem mais filamento do que você tem comprado."
+      : "";
+  };
+
+  // Preço e peças não podem ser negativos; peso por peça é limitado a 1500 g (rolo/peça
+  // maior que isso não existe na prática e gerava números absurdos no estoque calculado).
+  const clampField = (field, value) => {
+    let val = n(value);
+    if (val < 0) val = 0;
+    if (field === "pesoPeca" && val > 1500) val = 1500;
+    return val;
   };
 
   tr.querySelectorAll("input").forEach(input => {
     input.addEventListener("input", () => {
       const field = input.dataset.field;
-      f[field] = (field === "preco" || field === "pecas" || field === "pesoPeca") ? n(input.value) : input.value;
+      if (field === "preco" || field === "pecas" || field === "pesoPeca") {
+        const val = clampField(field, input.value);
+        f[field] = val;
+        if (input.value !== "" && Number(input.value) !== val) input.value = val;
+      } else {
+        f[field] = input.value;
+      }
       saveState();
       updateStockCells();
       // recalcula colunas de custo de filamento em todas as lojas, sem redesenhar tudo
@@ -847,8 +866,8 @@ function packagingRow(p) {
   if (p.obs && p.obs.includes("exemplo")) tr.classList.add("example-row");
   tr.innerHTML = `
     <td><input type="text" value="${escapeAttr(p.nome)}" data-field="nome" placeholder="Ex: Caixa de papelão P"></td>
-    <td class="num"><input type="number" step="0.01" value="${p.preco}" data-field="preco"></td>
-    <td class="num"><input type="number" step="1" value="${p.quantidade}" data-field="quantidade"></td>
+    <td class="num"><input type="number" step="0.01" min="0" value="${p.preco}" data-field="preco"></td>
+    <td class="num"><input type="number" step="1" min="0" value="${p.quantidade}" data-field="quantidade"></td>
     <td class="num calc-cell" data-out="estoqueConsumido">—</td>
     <td class="num calc-cell" data-out="estoqueAtual">—</td>
     <td class="num calc-cell" data-out="unitPrice">—</td>
@@ -860,15 +879,32 @@ function packagingRow(p) {
     const s = packagingStock(p);
     tr.querySelector('[data-out="estoqueConsumido"]').textContent = `${s.consumido.toLocaleString("pt-BR")} un`;
     const atualCell = tr.querySelector('[data-out="estoqueAtual"]');
-    atualCell.textContent = `${s.atual.toLocaleString("pt-BR")} un`;
-    atualCell.classList.toggle("devolucao-not-found", s.atual < 0);
+    const falta = s.atual < 0;
+    atualCell.textContent = `${falta ? "⚠ " : ""}${s.atual.toLocaleString("pt-BR")} un`;
+    atualCell.classList.toggle("stock-warning", falta);
+    atualCell.title = falta
+      ? "Estoque insuficiente: os produtos cadastrados consomem mais embalagens do que você tem compradas."
+      : "";
     tr.querySelector('[data-out="unitPrice"]').textContent = fmtCurrency(getPackagingUnitPrice(p.id));
+  };
+
+  // Preço e quantidade não podem ser negativos.
+  const clampField = (value) => {
+    let val = n(value);
+    if (val < 0) val = 0;
+    return val;
   };
 
   tr.querySelectorAll("input").forEach(input => {
     input.addEventListener("input", () => {
       const field = input.dataset.field;
-      p[field] = (field === "preco" || field === "quantidade") ? n(input.value) : input.value;
+      if (field === "preco" || field === "quantidade") {
+        const val = clampField(input.value);
+        p[field] = val;
+        if (input.value !== "" && Number(input.value) !== val) input.value = val;
+      } else {
+        p[field] = input.value;
+      }
       saveState();
       updateCalcCells();
       // recalcula colunas de custo de embalagem em todas as lojas, sem redesenhar tudo
@@ -2810,7 +2846,7 @@ function renderTicketsPanel() {
     <header class="panel-header">
       <div>
         <h1 class="page-title">Tickets</h1>
-        <p class="panel-sub">Mensagens enviadas por usuários bloqueados ou pelo botão de suporte.</p>
+        <p class="panel-sub">Conversas com usuários bloqueados ou que usaram o botão de suporte.</p>
       </div>
     </header>
     <div id="tickets-body"><div class="empty-state">Carregando...</div></div>
@@ -2848,16 +2884,33 @@ function renderTicketsPanel() {
             <span class="ticket-date">${fmtData(t.created_at)}</span>
           </div>
           ${t.subject ? `<p class="ticket-subject">${escapeHtml(t.subject)}</p>` : ""}
-          <p class="ticket-message">${escapeHtml(t.message)}</p>
           <div class="row-actions"></div>
+          <div class="ticket-thread-slot"></div>
         `;
 
         const actions = card.querySelector(".row-actions");
-        const btn = document.createElement("button");
-        btn.className = "ghost-btn small";
-        btn.textContent = t.status === "open" ? "Marcar como resolvido" : "Reabrir";
-        btn.addEventListener("click", async () => {
-          btn.disabled = true;
+        const threadSlot = card.querySelector(".ticket-thread-slot");
+        let threadOpen = false;
+
+        const btnToggle = document.createElement("button");
+        btnToggle.className = "ghost-btn small";
+        btnToggle.textContent = "Ver conversa";
+        btnToggle.addEventListener("click", async () => {
+          threadOpen = !threadOpen;
+          btnToggle.textContent = threadOpen ? "Fechar conversa" : "Ver conversa";
+          if (threadOpen) {
+            await renderTicketThread(threadSlot, t, { isAdmin: true, onReply: load });
+          } else {
+            threadSlot.innerHTML = "";
+          }
+        });
+        actions.appendChild(btnToggle);
+
+        const btnStatus = document.createElement("button");
+        btnStatus.className = "ghost-btn small";
+        btnStatus.textContent = t.status === "open" ? "Marcar como resolvido" : "Reabrir";
+        btnStatus.addEventListener("click", async () => {
+          btnStatus.disabled = true;
           try {
             const res = await fetch("/api/admin-ticket-action", {
               method: "POST",
@@ -2869,10 +2922,10 @@ function renderTicketsPanel() {
           } catch (e) {
             console.error(e);
             showToast("⚠ Não foi possível concluir a ação.");
-            btn.disabled = false;
+            btnStatus.disabled = false;
           }
         });
-        actions.appendChild(btn);
+        actions.appendChild(btnStatus);
 
         list.appendChild(card);
       });
@@ -2889,7 +2942,84 @@ function renderTicketsPanel() {
   return panel;
 }
 
-/* ===================== Suporte: botão flutuante de ticket ===================== */
+/* ===================== Suporte: conversa de ticket (compartilhado admin/usuário) ===================== */
+
+// Renderiza a conversa (mensagens + caixa de resposta) de um ticket dentro de `container`.
+// Usado tanto na aba Tickets do admin quanto no lado do usuário (botão flutuante e tela de
+// conta bloqueada), então a perspectiva de "minha mensagem" muda conforme opts.isAdmin.
+async function renderTicketThread(container, ticket, opts) {
+  opts = opts || {};
+  const isAdmin = !!opts.isAdmin;
+
+  container.innerHTML = `<div class="empty-state">Carregando conversa...</div>`;
+
+  let data;
+  try {
+    const res = await fetch("/api/ticket-messages?ticketId=" + encodeURIComponent(ticket.id));
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    data = await res.json();
+  } catch (e) {
+    console.error(e);
+    container.innerHTML = `<div class="empty-state">Não foi possível carregar a conversa.</div>`;
+    return;
+  }
+
+  const thread = document.createElement("div");
+  thread.className = "ticket-thread";
+
+  const bubbles = document.createElement("div");
+  bubbles.className = "ticket-bubbles";
+  (data.messages || []).forEach(m => {
+    const mine = isAdmin ? m.sender === "admin" : m.sender === "user";
+    const bubble = document.createElement("div");
+    bubble.className = "ticket-bubble" + (mine ? " mine" : " theirs");
+    bubble.innerHTML = `
+      <div class="ticket-bubble-meta">${m.sender === "admin" ? "Administrador" : "Você"} · ${new Date(m.created_at).toLocaleString("pt-BR")}</div>
+      <div class="ticket-bubble-text"></div>
+    `;
+    bubble.querySelector(".ticket-bubble-text").textContent = m.message;
+    bubbles.appendChild(bubble);
+  });
+  thread.appendChild(bubbles);
+
+  const form = document.createElement("form");
+  form.className = "ticket-reply-form";
+  form.innerHTML = `
+    <textarea placeholder="Escrever uma resposta..." rows="2" required></textarea>
+    <button type="submit" class="primary-btn small">Enviar</button>
+  `;
+  const textarea = form.querySelector("textarea");
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const message = textarea.value.trim();
+    if (!message) return;
+    const btn = form.querySelector("button");
+    btn.disabled = true;
+    try {
+      const res = await fetch("/api/ticket-reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticketId: ticket.id, message }),
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      textarea.value = "";
+      await renderTicketThread(container, ticket, opts);
+      if (opts.onReply) opts.onReply();
+    } catch (err) {
+      console.error(err);
+      showToast("⚠ Não foi possível enviar a resposta.");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  thread.appendChild(form);
+
+  container.innerHTML = "";
+  container.appendChild(thread);
+  bubbles.scrollTop = bubbles.scrollHeight;
+}
+
+/* ===================== Suporte: botão flutuante + "Meus tickets" (lado do usuário) ===================== */
 
 function renderFloatingTicketButton() {
   if (document.getElementById("floating-ticket-btn")) return;
@@ -2899,11 +3029,11 @@ function renderFloatingTicketButton() {
   btn.className = "floating-ticket-btn";
   btn.title = "Falar com o suporte";
   btn.textContent = "💬";
-  btn.addEventListener("click", () => openTicketModal());
+  btn.addEventListener("click", () => openSupportModal());
   document.body.appendChild(btn);
 }
 
-function openTicketModal() {
+async function openSupportModal() {
   if (document.getElementById("ticket-modal-backdrop")) return;
 
   const backdrop = document.createElement("div");
@@ -2912,6 +3042,16 @@ function openTicketModal() {
   backdrop.innerHTML = `
     <div class="ticket-modal">
       <h3>Falar com o suporte</h3>
+      <div id="support-modal-body"><div class="empty-state">Carregando...</div></div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  backdrop.addEventListener("click", e => { if (e.target === backdrop) backdrop.remove(); });
+
+  const modalBody = backdrop.querySelector("#support-modal-body");
+
+  function renderNewTicketForm() {
+    modalBody.innerHTML = `
       <form id="ticket-modal-form" class="auth-form">
         <label>Assunto (opcional)<input type="text" id="ticket-modal-subject" maxlength="200"></label>
         <label>Mensagem<textarea id="ticket-modal-message" required rows="4" style="width:100%; font-family:inherit; padding:8px; border-radius:8px;"></textarea></label>
@@ -2920,37 +3060,84 @@ function openTicketModal() {
           <button type="submit" class="primary-btn small" id="ticket-modal-submit">Enviar</button>
         </div>
       </form>
-    </div>
-  `;
-  document.body.appendChild(backdrop);
+    `;
+    modalBody.querySelector("#ticket-modal-cancel").addEventListener("click", () => backdrop.remove());
+    modalBody.querySelector("#ticket-modal-form").addEventListener("submit", async e => {
+      e.preventDefault();
+      const subject = modalBody.querySelector("#ticket-modal-subject").value.trim();
+      const message = modalBody.querySelector("#ticket-modal-message").value.trim();
+      const submitBtn = modalBody.querySelector("#ticket-modal-submit");
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Enviando...";
+      try {
+        const res = await fetch("/api/create-ticket", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subject, message }),
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        backdrop.remove();
+        showToast("Ticket enviado! O administrador vai analisar em breve.");
+      } catch (err) {
+        console.error(err);
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Enviar";
+        showToast("⚠ Não foi possível enviar o ticket agora.");
+      }
+    });
+  }
 
-  const close = () => backdrop.remove();
-  backdrop.addEventListener("click", e => { if (e.target === backdrop) close(); });
-  backdrop.querySelector("#ticket-modal-cancel").addEventListener("click", close);
-
-  backdrop.querySelector("#ticket-modal-form").addEventListener("submit", async e => {
-    e.preventDefault();
-    const subject = backdrop.querySelector("#ticket-modal-subject").value.trim();
-    const message = backdrop.querySelector("#ticket-modal-message").value.trim();
-    const submitBtn = backdrop.querySelector("#ticket-modal-submit");
-    submitBtn.disabled = true;
-    submitBtn.textContent = "Enviando...";
+  async function renderMyTickets() {
+    modalBody.innerHTML = `<div class="empty-state">Carregando...</div>`;
+    let tickets = [];
     try {
-      const res = await fetch("/api/create-ticket", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject, message }),
-      });
+      const res = await fetch("/api/my-tickets");
       if (!res.ok) throw new Error("HTTP " + res.status);
-      close();
-      showToast("Ticket enviado! O administrador vai analisar em breve.");
-    } catch (err) {
-      console.error(err);
-      submitBtn.disabled = false;
-      submitBtn.textContent = "Enviar";
-      showToast("⚠ Não foi possível enviar o ticket agora.");
+      const data = await res.json();
+      tickets = data.tickets || [];
+    } catch (e) {
+      console.error(e);
     }
-  });
+
+    modalBody.innerHTML = "";
+
+    const newBtn = document.createElement("button");
+    newBtn.className = "ghost-btn small";
+    newBtn.textContent = "+ Novo ticket";
+    newBtn.style.marginBottom = "12px";
+    newBtn.addEventListener("click", renderNewTicketForm);
+    modalBody.appendChild(newBtn);
+
+    if (tickets.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.textContent = "Você ainda não abriu nenhum ticket.";
+      modalBody.appendChild(empty);
+      return;
+    }
+
+    const list = document.createElement("div");
+    list.className = "tickets-list";
+    tickets.forEach(t => {
+      const card = document.createElement("div");
+      card.className = "ticket-card" + (t.status === "closed" ? " closed" : "");
+      card.innerHTML = `
+        <div class="ticket-card-header">
+          <div>
+            <strong>${escapeHtml(t.subject || "(sem assunto)")}</strong>
+            <span class="ticket-status ${t.status}">${t.status === "open" ? "Aberto" : "Resolvido"}</span>
+          </div>
+          <span class="ticket-date">${new Date(t.created_at).toLocaleString("pt-BR")}</span>
+        </div>
+        <div class="ticket-thread-slot"></div>
+      `;
+      renderTicketThread(card.querySelector(".ticket-thread-slot"), t, { isAdmin: false });
+      list.appendChild(card);
+    });
+    modalBody.appendChild(list);
+  }
+
+  renderMyTickets();
 }
 
 /* ===================== Export / Import ===================== */

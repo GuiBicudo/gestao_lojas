@@ -189,7 +189,7 @@ function renderResetForm(token, opts) {
 
 /* ---------- Tela de conta bloqueada (com formulário de ticket) ---------- */
 
-function renderBlockedGate(opts) {
+async function renderBlockedGate(opts) {
   opts = opts || {};
 
   authGate.innerHTML = `
@@ -204,11 +204,7 @@ function renderBlockedGate(opts) {
 
       ${opts.notice ? `<div class="auth-notice ${opts.noticeType || ""}">${opts.notice}</div>` : ""}
 
-      <form id="blocked-ticket-form" class="auth-form">
-        <label>Assunto (opcional)<input type="text" id="blocked-ticket-subject" maxlength="200"></label>
-        <label>Mensagem<textarea id="blocked-ticket-message" required rows="4" style="width:100%; font-family:inherit; padding:8px; border-radius:8px;"></textarea></label>
-        <button type="submit" class="primary-btn" id="blocked-ticket-submit">Enviar ticket</button>
-      </form>
+      <div id="blocked-ticket-area"><div class="empty-state">Carregando...</div></div>
       <p class="auth-hint"><a href="#" id="blocked-logout-link">Sair</a></p>
     </div>
   `;
@@ -219,11 +215,36 @@ function renderBlockedGate(opts) {
     window.location.reload();
   });
 
-  authGate.querySelector("#blocked-ticket-form").addEventListener("submit", async e => {
+  const area = authGate.querySelector("#blocked-ticket-area");
+
+  // Se já existe um ticket aberto, mostra a conversa em vez de um formulário em branco —
+  // assim dá pra continuar a mesma conversa em vez de abrir um ticket novo toda hora.
+  let openTicket = null;
+  try {
+    const res = await fetch("/api/my-tickets");
+    const data = await res.json();
+    openTicket = (data.tickets || []).find(t => t.status === "open") || null;
+  } catch (e) {}
+
+  if (openTicket && typeof renderTicketThread === "function") {
+    area.innerHTML = "";
+    await renderTicketThread(area, openTicket, { isAdmin: false });
+    return;
+  }
+
+  area.innerHTML = `
+    <form id="blocked-ticket-form" class="auth-form">
+      <label>Assunto (opcional)<input type="text" id="blocked-ticket-subject" maxlength="200"></label>
+      <label>Mensagem<textarea id="blocked-ticket-message" required rows="4" style="width:100%; font-family:inherit; padding:8px; border-radius:8px;"></textarea></label>
+      <button type="submit" class="primary-btn" id="blocked-ticket-submit">Enviar ticket</button>
+    </form>
+  `;
+
+  area.querySelector("#blocked-ticket-form").addEventListener("submit", async e => {
     e.preventDefault();
-    const subject = authGate.querySelector("#blocked-ticket-subject").value.trim();
-    const message = authGate.querySelector("#blocked-ticket-message").value.trim();
-    const submitBtn = authGate.querySelector("#blocked-ticket-submit");
+    const subject = area.querySelector("#blocked-ticket-subject").value.trim();
+    const message = area.querySelector("#blocked-ticket-message").value.trim();
+    const submitBtn = area.querySelector("#blocked-ticket-submit");
     submitBtn.disabled = true;
     submitBtn.textContent = "Enviando...";
     const { ok } = await apiPost("/api/create-ticket", { subject, message });
@@ -271,7 +292,7 @@ async function boot() {
 
   if (me.blocked) {
     showAuthGate();
-    renderBlockedGate();
+    await renderBlockedGate();
     return;
   }
 

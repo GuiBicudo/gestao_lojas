@@ -25,6 +25,10 @@ exports.handler = async (event) => {
     returning id, created_at
   `;
 
+  // A primeira mensagem também entra na conversa, pra "Seus tickets" e a aba de
+  // Administração mostrarem tudo (inclusive o texto inicial) na mesma thread.
+  await sql`insert into ticket_messages (ticket_id, sender, message) values (${ticket.id}, 'user', ${message})`;
+
   try {
     await sendMail({
       to: process.env.OWNER_EMAIL,
