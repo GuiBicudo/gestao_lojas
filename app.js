@@ -2911,6 +2911,7 @@ function renderUsuariosPanel() {
             <th>E-mail</th>
             <th>Status</th>
             <th>Cadastrado em</th>
+            <th>Último acesso</th>
             <th>Trial até</th>
             <th></th>
           </tr>
@@ -2925,6 +2926,7 @@ function renderUsuariosPanel() {
           <td>${escapeHtml(u.email)}</td>
           <td>${statusLabel(u)}</td>
           <td>${fmtData(u.created_at)}</td>
+          <td>${fmtData(u.last_seen_at)}</td>
           <td>${fmtData(u.trial_ends_at)}</td>
           <td class="usuarios-actions row-actions"></td>
         `;

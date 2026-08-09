@@ -43,7 +43,7 @@ exports.handler = async (event) => {
   }
 
   const [updated] = await sql`
-    select id, email, status, created_at, approved_at, trial_ends_at, blocked_at
+    select id, email, status, created_at, approved_at, trial_ends_at, blocked_at, last_seen_at
     from users where id = ${userId}
   `;
 

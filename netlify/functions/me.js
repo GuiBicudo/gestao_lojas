@@ -5,7 +5,14 @@ exports.handler = async (event) => {
   const session = await getSessionFromEvent(event);
   if (!session) return json(200, { authenticated: false });
 
-  const rows = await sql`select id, email, status, trial_ends_at, blocked_at from users where id = ${session.id}`;
+  // Já aproveita essa consulta (que já acontece a cada carregamento do app) pra marcar
+  // "último acesso" — alimenta a coluna correspondente na aba Usuários, sem precisar de
+  // uma escrita extra em toda requisição autenticada.
+  const rows = await sql`
+    update users set last_seen_at = now()
+    where id = ${session.id}
+    returning id, email, status, trial_ends_at, blocked_at
+  `;
   const user = rows[0];
   if (!user || user.status !== "approved") return json(200, { authenticated: false });
 

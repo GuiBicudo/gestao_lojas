@@ -16,7 +16,10 @@ create table if not exists users (
   -- Contador usado pra "revogar" sessões: incrementado no logout (e na troca de senha), o
   -- token JWT guarda o valor de quando foi emitido — se não bater mais com o do banco, a
   -- sessão é rejeitada mesmo que o token em si ainda não tenha expirado (30 dias).
-  token_version integer not null default 0
+  token_version integer not null default 0,
+  -- Atualizado toda vez que a pessoa abre o app (checagem de sessão em /api/me) — é o que
+  -- alimenta a coluna "Último acesso" na aba Usuários.
+  last_seen_at timestamptz
 );
 
 -- Se você já rodou esse script antes (banco já existia), rode também estas linhas
@@ -24,6 +27,7 @@ create table if not exists users (
 -- alter table users add column if not exists trial_ends_at timestamptz;
 -- alter table users add column if not exists blocked_at timestamptz;
 -- alter table users add column if not exists token_version integer not null default 0;
+-- alter table users add column if not exists last_seen_at timestamptz;
 
 create table if not exists app_state (
   user_id uuid primary key references users(id) on delete cascade,
