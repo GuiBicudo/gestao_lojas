@@ -1186,6 +1186,7 @@ input[data-field="peso"], input[data-field="tempo"] { width: auto; min-width: 76
   box-shadow: 0 20px 50px rgba(0,0,0,0.3);
 }
 .ticket-modal h3 { margin: 0 0 12px; font-family: var(--font-display); color: var(--ink); }
+.ticket-modal.wide { max-width: 780px; }
 
 /* ---------- Conversa de ticket (bolhas) ---------- */
 

@@ -393,6 +393,10 @@ function n(v) {
   return isNaN(num) ? 0 : num;
 }
 
+function round2(v) {
+  return Math.round(v * 100) / 100;
+}
+
 // Campos que nunca podem ficar negativos (preço, custo, quantidade, taxa). Se o valor
 // digitado for negativo, o próprio campo volta pra 0 na hora — usado nos listeners de
 // input das tabelas do app inteiro pra fechar esse tipo de bug de uma vez.
@@ -1127,6 +1131,201 @@ let storeViewType = "3d";
 // texto de busca por Nº do pedido na tela de Lojas — vive só na sessão, não é salvo no banco
 let storeSearch = "";
 
+/* ---------- Importar relatório de pedidos da Shopee (.xlsx) -----------
+   A Shopee deixa exportar um relatório de pedidos em .xlsx, mas ele NÃO inclui a "Taxa de
+   Devolução Fácil" (aparece no extrato de cada pedido no painel, mas não como coluna no
+   arquivo) — é um valor fixo de R$0,49 por item vendido. Sem contar esse valor, o "recebido"
+   calculado ficava sempre 49 centavos maior que o valor real recebido (foi conferido pedido a
+   pedido comparando com o extrato). A fórmula abaixo já desconta isso. */
+const SHOPEE_TAXA_ITEM_DEVOLUCAO_FACIL = 0.49;
+
+function normalizeProdutoName(s) {
+  return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+}
+
+// procura, no catálogo de precificação e nos produtos já cadastrados em qualquer loja, algo
+// com nome parecido — usado pra puxar impressora/filamento/embalagem automaticamente pros
+// pedidos importados, em vez de deixar tudo em branco
+function findCatalogMatchByName(nomeProduto) {
+  const needle = normalizeProdutoName(nomeProduto);
+  if (!needle) return null;
+
+  const candidates = [];
+  state.pricing.threeD.forEach(r => candidates.push({
+    tipo: TIPO_3D, produto: r.produto, impressora: r.impressora, filamentoId: r.filamentoId,
+    peso: r.peso, tempo: r.tempo, embalagemId: r.embalagemId, gastoLevar: r.gastoLevar,
+  }));
+  state.pricing.produtos.forEach(r => candidates.push({
+    tipo: TIPO_REVENDA, produto: r.produto, insumos: r.insumos, embalagemId: r.embalagemId, gastoLevar: r.gastoLevar,
+  }));
+  STORE_META.forEach(meta => state.stores[meta.key].forEach(r => {
+    if (r.example) return;
+    candidates.push(r.tipo === TIPO_3D
+      ? { tipo: TIPO_3D, produto: r.produto, impressora: r.impressora, filamentoId: r.filamentoId, peso: r.peso, tempo: r.tempo, embalagemId: r.embalagemId, gastoLevar: r.gastoLevar }
+      : { tipo: TIPO_REVENDA, produto: r.produto, insumos: r.insumos, embalagemId: r.embalagemId, gastoLevar: r.gastoLevar });
+  }));
+
+  // 1) nome igual (ignorando maiúsculas/acentos)
+  let match = candidates.find(c => normalizeProdutoName(c.produto) === needle);
+  // 2) um nome contém o outro — o relatório da Shopee costuma trazer o título completo do
+  //    anúncio, que raramente é idêntico ao nome curto que você cadastrou aqui
+  if (!match) {
+    match = candidates.find(c => {
+      const cn = normalizeProdutoName(c.produto);
+      return cn && (needle.includes(cn) || cn.includes(needle));
+    });
+  }
+  return match || null;
+}
+
+// lê uma linha do relatório da Shopee e calcula o valor líquido recebido:
+//   recebido = Subtotal do produto − Cupom do vendedor − Ajuste por pagamento via PIX
+//              − Taxa de comissão líquida − Taxa de serviço líquida
+//              − R$0,49 × quantidade (Taxa de Devolução Fácil, que não vem no relatório)
+// retorna null pra pedidos cancelados (não são uma venda de verdade) ou sem Nº de pedido
+function parseShopeeReportRow(row) {
+  const status = String(row["Status do pedido"] || "").trim().toLowerCase();
+  if (status === "cancelado") return null;
+
+  const numeroPedido = String(row["ID do pedido"] || "").trim();
+  if (!numeroPedido) return null;
+
+  const produto = String(row["Nome do Produto"] || "").trim();
+  const quantidade = Math.max(1, Math.round(n(row["Quantidade"])) || 1);
+  const subtotal = n(row["Subtotal do produto"]);
+  const cupomVendedor = n(row["Cupom do vendedor"]);
+  const ajustePix = n(row["Ajuste por pagamento via PIX"]);
+  const comissaoLiquida = n(row["Taxa de comissão líquida"]);
+  const servicoLiquida = n(row["Taxa de serviço líquida"]);
+  const taxaDevolucaoFacil = SHOPEE_TAXA_ITEM_DEVOLUCAO_FACIL * quantidade;
+
+  let recebido = subtotal - cupomVendedor - ajustePix - comissaoLiquida - servicoLiquida - taxaDevolucaoFacil;
+  recebido = Math.max(0, Math.min(recebido, subtotal));
+
+  const dataRaw = String(row["Data de criação do pedido"] || "").trim();
+  const data = dataRaw.length >= 10 ? dataRaw.slice(0, 10) : "";
+
+  return { numeroPedido, produto, data, precoVenda: round2(subtotal), recebido: round2(recebido) };
+}
+
+// monta a linha pronta pra entrar em state.stores.shopee, puxando do catálogo o que der
+function buildShopeeImportRow(parsed, match) {
+  const base = {
+    id: uid(), example: false,
+    produto: parsed.produto,
+    data: parsed.data,
+    numeroPedido: parsed.numeroPedido,
+    precoVenda: parsed.precoVenda,
+    recebido: parsed.recebido,
+    taxaMETipo: "nenhum",
+    embalagemId: match && match.embalagemId ? match.embalagemId : "",
+    gastoLevar: match && hasVal(match.gastoLevar) ? match.gastoLevar : "",
+  };
+  if (match && match.tipo === TIPO_3D) {
+    return Object.assign(base, {
+      tipo: TIPO_3D,
+      impressora: match.impressora || "",
+      filamentoId: match.filamentoId || "",
+      peso: hasVal(match.peso) ? match.peso : "",
+      tempo: hasVal(match.tempo) ? match.tempo : "",
+    });
+  }
+  return Object.assign(base, {
+    tipo: TIPO_REVENDA,
+    insumos: match && hasVal(match.insumos) ? match.insumos : "",
+  });
+}
+
+async function handleShopeeReportFile(file) {
+  let json;
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  } catch (e) {
+    console.error("[shopee-import] falha ao ler o relatório:", e);
+    alert("Não consegui ler esse arquivo. Confira se é o relatório de pedidos (.xlsx) exportado da Shopee.");
+    return;
+  }
+
+  let skippedCancelado = 0, skippedDuplicado = 0;
+  const candidates = [];
+  json.forEach(row => {
+    const parsed = parseShopeeReportRow(row);
+    if (!parsed) { skippedCancelado++; return; }
+    if (findProductByOrderNumber(parsed.numeroPedido)) { skippedDuplicado++; return; }
+    candidates.push({ parsed, match: findCatalogMatchByName(parsed.produto), include: true });
+  });
+
+  if (candidates.length === 0 && skippedCancelado === 0 && skippedDuplicado === 0) {
+    alert("Não encontrei pedidos nesse arquivo. Confira se é o relatório certo (exportado da Shopee no formato .xlsx).");
+    return;
+  }
+
+  openShopeeImportPreview(candidates, { skippedCancelado, skippedDuplicado });
+}
+
+function openShopeeImportPreview(candidates, meta) {
+  if (document.getElementById("shopee-import-backdrop")) return;
+
+  const backdrop = document.createElement("div");
+  backdrop.id = "shopee-import-backdrop";
+  backdrop.className = "ticket-modal-backdrop";
+
+  const rowsHtml = candidates.map((c, i) => `
+    <tr>
+      <td><input type="checkbox" data-idx="${i}" ${c.include ? "checked" : ""}></td>
+      <td>${escapeHtml(c.parsed.numeroPedido)}</td>
+      <td>${escapeHtml(c.parsed.produto)}</td>
+      <td>${formatDateBR(c.parsed.data)}</td>
+      <td>${c.match ? (c.match.tipo === TIPO_3D ? "Impressão 3D" : "Revenda") + " · combinou com o catálogo" : "não identificado — completar depois"}</td>
+      <td class="num">${fmtCurrency(c.parsed.precoVenda)}</td>
+      <td class="num">${fmtCurrency(c.parsed.recebido)}</td>
+    </tr>
+  `).join("");
+
+  const summaryParts = [];
+  if (meta.skippedCancelado) summaryParts.push(`${meta.skippedCancelado} cancelado(s) ignorado(s)`);
+  if (meta.skippedDuplicado) summaryParts.push(`${meta.skippedDuplicado} já cadastrado(s) (Nº do pedido repetido) ignorado(s)`);
+
+  backdrop.innerHTML = `
+    <div class="ticket-modal wide">
+      <h3>Importar relatório da Shopee</h3>
+      <p class="panel-sub">${candidates.length} pedido(s) prontos pra importar${summaryParts.length ? " · " + summaryParts.join(" · ") : ""}. Produtos sem correspondência no seu catálogo entram sem impressora/filamento/embalagem selecionados — complete depois. Desmarque o que não quiser importar.</p>
+      ${candidates.length > 0 ? `
+      <div class="table-wrap" style="max-height:50vh;">
+        <table class="data-table">
+          <thead><tr><th></th><th>Nº Pedido</th><th>Produto</th><th>Data</th><th>Classificação</th><th class="num">Venda</th><th class="num">Recebido (estimado)</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>` : ""}
+      <div class="row-actions" style="justify-content:flex-end; margin-top:14px;">
+        <button type="button" class="ghost-btn small" id="shopee-import-cancel">Cancelar</button>
+        <button type="button" class="primary-btn" id="shopee-import-confirm" ${candidates.length === 0 ? "disabled" : ""}>Importar selecionados</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(backdrop);
+
+  backdrop.querySelector("#shopee-import-cancel").addEventListener("click", () => backdrop.remove());
+  backdrop.addEventListener("click", e => { if (e.target === backdrop) backdrop.remove(); });
+
+  backdrop.querySelectorAll('input[type="checkbox"][data-idx]').forEach(cb => {
+    cb.addEventListener("change", () => { candidates[Number(cb.dataset.idx)].include = cb.checked; });
+  });
+
+  backdrop.querySelector("#shopee-import-confirm").addEventListener("click", () => {
+    const toImport = candidates.filter(c => c.include);
+    toImport.forEach(c => state.stores.shopee.push(buildShopeeImportRow(c.parsed, c.match)));
+    saveState();
+    backdrop.remove();
+    if (activeTab === "shopee") renderContent();
+    showToast(`${toImport.length} pedido(s) importado(s) da Shopee.`);
+  });
+}
+
 function head3D() {
   return `
     <th class="col-produto">Produto</th>
@@ -1196,6 +1395,10 @@ function renderStorePanel(storeKey) {
       <div class="panel-actions">
         <input type="text" id="store-search" class="search-input" placeholder="Buscar por Nº do pedido..." value="${escapeAttr(storeSearch)}">
         <button class="primary-btn" data-action="add-row">+ Novo produto${is3D ? " 3D" : ""}</button>
+        ${storeKey === "shopee" ? `
+        <label class="ghost-btn small" for="shopee-import-file" title="Importar relatório de pedidos exportado da Shopee (.xlsx)"><span class="btn-icon">⭱</span><span class="btn-label">Importar relatório Shopee</span></label>
+        <input type="file" id="shopee-import-file" accept=".xlsx" hidden>
+        ` : ""}
         <button class="ghost-btn small" data-action="export-csv">Exportar CSV</button>
       </div>
     </header>
@@ -1260,6 +1463,14 @@ function renderStorePanel(storeKey) {
   });
 
   panel.querySelector('[data-action="export-csv"]').addEventListener("click", () => exportStoreCSV(storeKey));
+
+  if (storeKey === "shopee") {
+    panel.querySelector("#shopee-import-file").addEventListener("change", e => {
+      const file = e.target.files[0];
+      e.target.value = "";
+      if (file) handleShopeeReportFile(file);
+    });
+  }
 
   panel.querySelector("#store-search").addEventListener("input", e => {
     storeSearch = e.target.value;
