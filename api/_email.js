@@ -8,7 +8,7 @@ async function sendMail({ to, subject, html }) {
     return;
   }
   const resend = new Resend(process.env.RESEND_API_KEY);
-  const from = process.env.EMAIL_FROM || "Gestão de Lojas <onboarding@resend.dev>";
+  const from = process.env.EMAIL_FROM || "ShopStock <onboarding@resend.dev>";
   await resend.emails.send({ from, to, subject, html });
 }
 

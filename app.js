@@ -120,7 +120,7 @@ function defaultState() {
       tarifa: 0.7894,
     },
     profile: {
-      nome: "Gestão de Lojas",
+      nome: "ShopStock",
       icone: null,
       // ramos do negócio: controla se as abas/seletor "Impressão 3D" e "Produtos"
       // aparecem nas telas de Lojas e Precificação, e a frase embaixo do nome no menu
@@ -170,7 +170,7 @@ function migrateTaxaME(row) {
 
 function normalizeState(parsed) {
   STORE_META.forEach(s => { if (!parsed.stores[s.key]) parsed.stores[s.key] = []; });
-  if (!parsed.profile) parsed.profile = { nome: "Gestão de Lojas", icone: null };
+  if (!parsed.profile) parsed.profile = { nome: "ShopStock", icone: null };
   if (!parsed.pricing) parsed.pricing = { threeD: [], produtos: [] };
   if (!parsed.pricing.threeD) parsed.pricing.threeD = [];
   if (!parsed.pricing.produtos) parsed.pricing.produtos = [];
@@ -1279,7 +1279,7 @@ function openShopeeImportPreview(candidates, meta) {
       <td>${escapeHtml(c.parsed.numeroPedido)}</td>
       <td>${escapeHtml(c.parsed.produto)}</td>
       <td>${formatDateBR(c.parsed.data)}</td>
-      <td>${c.match ? (c.match.tipo === TIPO_3D ? "Impressão 3D" : "Revenda") + " · combinou com o catálogo" : "não identificado — completar depois"}</td>
+      <td>${c.match ? (c.match.tipo === TIPO_3D ? "Impressão 3D" : "Produtos") + " · combinou com o catálogo" : "não identificado — completar depois"}</td>
       <td class="num">${fmtCurrency(c.parsed.precoVenda)}</td>
       <td class="num">${fmtCurrency(c.parsed.recebido)}</td>
     </tr>
@@ -2840,18 +2840,18 @@ function resizeImageToDataURL(file, maxSize) {
 // de acordo com os ramos do negócio marcados no Perfil
 function ramosLabel() {
   const ramos = getRamos();
-  if (ramos.threeD && ramos.produtos) return "Impressão 3D & Revenda";
+  if (ramos.threeD && ramos.produtos) return "Impressão 3D e Produtos";
   if (ramos.threeD) return "Impressão 3D";
-  return "Revenda de Produtos";
+  return "Produtos";
 }
 
 function renderBrand() {
   const nameEl = document.querySelector(".brand-text strong");
   const subEl = document.querySelector(".brand-text span");
   const markEl = document.querySelector(".brand-mark");
-  const nome = (state.profile && state.profile.nome) || "Gestão de Lojas";
+  const nome = (state.profile && state.profile.nome) || "ShopStock";
   const ramos = ramosLabel();
-  if (nameEl) nameEl.textContent = nome;
+  if (nameEl) nameEl.innerHTML = `${escapeHtml(nome)} <span class="brand-flag" title="Brasil">🇧🇷</span>`;
   if (subEl) subEl.textContent = ramos;
   if (markEl) {
     markEl.innerHTML = state.profile && state.profile.icone
@@ -2894,7 +2894,7 @@ function renderPerfilPanel() {
         <label>Ramos do negócio</label>
         <div class="ramos-options">
           <label class="ramos-option"><input type="checkbox" id="ramo-3d" ${ramos.threeD ? "checked" : ""}> Impressão 3D</label>
-          <label class="ramos-option"><input type="checkbox" id="ramo-produtos" ${ramos.produtos ? "checked" : ""}> Produtos (Revenda)</label>
+          <label class="ramos-option"><input type="checkbox" id="ramo-produtos" ${ramos.produtos ? "checked" : ""}> Produtos</label>
         </div>
         <p class="param-note">Controla quais abas aparecem em Lojas e Precificação, e a frase abaixo do nome no menu. Marque só o que você realmente trabalha.</p>
       </div>

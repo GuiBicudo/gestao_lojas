@@ -56,11 +56,11 @@ async function handleApprove(event) {
     await sendMail({
       to: user.email,
       subject: decision === "approved"
-        ? "Seu cadastro foi aprovado — Gestão de Lojas"
-        : "Seu cadastro não foi aprovado — Gestão de Lojas",
+        ? "Seu cadastro foi aprovado — ShopStock"
+        : "Seu cadastro não foi aprovado — ShopStock",
       html: decision === "approved"
-        ? `<p>Seu cadastro no Gestão de Lojas foi aprovado. Você já pode entrar com seu e-mail e senha.</p>`
-        : `<p>Seu cadastro no Gestão de Lojas não foi aprovado.</p>`,
+        ? `<p>Seu cadastro no ShopStock foi aprovado. Você já pode entrar com seu e-mail e senha.</p>`
+        : `<p>Seu cadastro no ShopStock não foi aprovado.</p>`,
     });
   } catch (e) {
     console.error("[admin/approve] falha ao enviar e-mail:", e);

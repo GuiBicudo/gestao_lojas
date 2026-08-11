@@ -152,6 +152,11 @@ html, body {
   color: #8F98A1;
 }
 
+.brand-flag {
+  font-size: 13px;
+  margin-left: 2px;
+}
+
 .nav {
   flex: 1;
   padding: 16px 12px;
@@ -473,6 +478,7 @@ table.data-table td.usuarios-actions {
 }
 .auth-brand .brand-mark { color: var(--accent); font-size: 20px; }
 .auth-brand strong { font-size: 16px; }
+.auth-brand .brand-flag { font-size: 14px; margin-left: 2px; }
 
 .auth-tabs { width: 100%; margin-bottom: 18px; }
 .auth-tabs .segmented-btn { flex: 1; }

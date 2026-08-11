@@ -40,7 +40,7 @@ function renderAuthGate(mode, opts) {
     <div class="auth-card">
       <div class="auth-brand">
         <span class="brand-mark">◇</span>
-        <strong>Gestão de Lojas</strong>
+        <strong>ShopStock <span class="brand-flag" title="Brasil">🇧🇷</span></strong>
       </div>
 
       ${showTabs ? `
@@ -61,6 +61,7 @@ function renderAuthGate(mode, opts) {
         <p class="auth-hint"><a href="#" id="auth-forgot-link">Esqueci minha senha</a></p>
       ` : mode === "signup" ? `
         <form id="auth-form" class="auth-form">
+          <label>Nome da loja<input type="text" id="auth-store-name" maxlength="80" placeholder="Ex: Minha Loja 3D"></label>
           <label>E-mail<input type="email" id="auth-email" required autocomplete="email"></label>
           <label>Senha<input type="password" id="auth-password" required autocomplete="new-password" minlength="8"></label>
           <label>Confirmar senha<input type="password" id="auth-password2" required autocomplete="new-password" minlength="8"></label>
@@ -123,7 +124,8 @@ function renderAuthGate(mode, opts) {
       if (status === 403 && data.error === "pending") notice = "Seu cadastro ainda está aguardando aprovação.";
       renderAuthGate("login", { notice, noticeType: "bad" });
     } else {
-      const { ok, data } = await apiPost("/api/auth/signup", { email, password });
+      const storeName = authGate.querySelector("#auth-store-name").value.trim();
+      const { ok, data } = await apiPost("/api/auth/signup", { email, password, storeName });
       if (ok) {
         renderAuthGate("login", { notice: data.message || "Cadastro enviado! Você poderá entrar assim que for aprovado.", noticeType: "good" });
         return;
@@ -142,7 +144,7 @@ function renderResetForm(token, opts) {
     <div class="auth-card">
       <div class="auth-brand">
         <span class="brand-mark">◇</span>
-        <strong>Gestão de Lojas</strong>
+        <strong>ShopStock <span class="brand-flag" title="Brasil">🇧🇷</span></strong>
       </div>
 
       <p class="auth-hint" style="margin-top:0;">Escolha uma nova senha para sua conta.</p>
@@ -196,7 +198,7 @@ async function renderBlockedGate(opts) {
     <div class="auth-card">
       <div class="auth-brand">
         <span class="brand-mark">◇</span>
-        <strong>Gestão de Lojas</strong>
+        <strong>ShopStock <span class="brand-flag" title="Brasil">🇧🇷</span></strong>
       </div>
 
       <p class="auth-hint" style="margin-top:0;">🔒 Seu acesso foi bloqueado pelo administrador.</p>

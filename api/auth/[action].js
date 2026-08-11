@@ -80,6 +80,7 @@ async function handleSignup(event) {
 
   const email = (body.email || "").trim().toLowerCase();
   const password = body.password || "";
+  const storeName = (body.storeName || "").trim().slice(0, 80);
   const ip = getClientIp(event);
 
   if (!email || !email.includes("@")) return json(400, { error: "E-mail inválido." });
@@ -102,8 +103,8 @@ async function handleSignup(event) {
     try {
       await sendMail({
         to: existing[0].email,
-        subject: "Tentativa de cadastro com seu e-mail — Gestão de Lojas",
-        html: `<p>Alguém tentou criar uma nova conta no Gestão de Lojas usando este e-mail, que já está cadastrado.</p>
+        subject: "Tentativa de cadastro com seu e-mail — ShopStock",
+        html: `<p>Alguém tentou criar uma nova conta no ShopStock usando este e-mail, que já está cadastrado.</p>
                <p>Se foi você, use a opção "Esqueci minha senha" na tela de login para recuperar o acesso. Se não foi você, pode ignorar este e-mail com segurança.</p>`,
       });
     } catch (e) {
@@ -125,9 +126,13 @@ async function handleSignup(event) {
     returning id, email, status
   `;
 
+  // Se a pessoa informou um nome de loja no cadastro, já guarda ele no perfil inicial —
+  // assim ela não precisa ir até "Perfil" depois só pra colocar o nome que já tinha digitado.
+  const initialState = storeName ? { profile: { nome: storeName } } : {};
+
   await sql`
     insert into app_state (user_id, data)
-    values (${user.id}, ${"{}"}::jsonb)
+    values (${user.id}, ${JSON.stringify(initialState)}::jsonb)
     on conflict (user_id) do nothing
   `;
 
@@ -135,8 +140,8 @@ async function handleSignup(event) {
     try {
       await sendMail({
         to: process.env.OWNER_EMAIL,
-        subject: "Novo cadastro aguardando aprovação — Gestão de Lojas",
-        html: `<p>O e-mail <strong>${email}</strong> se cadastrou no Gestão de Lojas e está aguardando sua aprovação.</p>
+        subject: "Novo cadastro aguardando aprovação — ShopStock",
+        html: `<p>O e-mail <strong>${email}</strong> se cadastrou no ShopStock e está aguardando sua aprovação.</p>
                <p>Entre no sistema e acesse a aba "Aprovações" para aprovar ou rejeitar.</p>`,
       });
     } catch (e) {
@@ -234,8 +239,8 @@ async function handleForgotPassword(event) {
     try {
       await sendMail({
         to: user.email,
-        subject: "Recuperação de senha — Gestão de Lojas",
-        html: `<p>Recebemos um pedido para redefinir sua senha no Gestão de Lojas.</p>
+        subject: "Recuperação de senha — ShopStock",
+        html: `<p>Recebemos um pedido para redefinir sua senha no ShopStock.</p>
                <p><a href="${resetLink}">Clique aqui para criar uma nova senha</a>. O link expira em 1 hora.</p>
                <p>Se você não pediu isso, pode ignorar este e-mail.</p>`,
       });

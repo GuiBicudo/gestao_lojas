@@ -128,7 +128,7 @@ async function handleReply(event) {
       if (target) {
         await sendMail({
           to: target.email,
-          subject: "Nova resposta no seu ticket — Gestão de Lojas",
+          subject: "Nova resposta no seu ticket — ShopStock",
           html: `<p>O administrador respondeu seu ticket:</p><p>${message.replace(/\n/g, "<br>")}</p>`,
         });
       }
@@ -155,7 +155,7 @@ async function handleRequestPremium(event) {
   try {
     await sendMail({
       to: process.env.OWNER_EMAIL,
-      subject: "Pedido de acesso premium — Gestão de Lojas",
+      subject: "Pedido de acesso premium — ShopStock",
       html: `<p>O usuário <strong>${user.email}</strong> esbarrou numa área travada e clicou em "Torne-se premium".</p>
              <p>Trial dele venceu em: ${user.trial_ends_at ? new Date(user.trial_ends_at).toLocaleString("pt-BR") : "—"}</p>
              <p>Entre no sistema e acesse a aba "Usuários" pra estender o trial ou liberar o acesso.</p>`,
