@@ -348,10 +348,10 @@ function saveState() {
   });
 }
 
-/* ===================== Banco de dados (Neon, via Netlify Functions) =====================
+/* ===================== Banco de dados (Neon, via Vercel Functions) =====================
    Os dados não ficam mais só no navegador: cada usuário aprovado tem seu próprio estado
-   salvo no Postgres (Neon), lido/gravado através das Functions em /api/state-get e
-   /api/state-save (veja netlify/functions/). O cookie de sessão (httpOnly) já identifica
+   salvo no Postgres (Neon), lido/gravado através das functions em /api/state-get e
+   /api/state-save (veja a pasta api/). O cookie de sessão (httpOnly) já identifica
    quem está logado — essas chamadas não precisam mandar usuário/senha de novo.
    Essa camada continua isolada de propósito: só ela sabe "onde" os dados moram; o resto
    do app só chama saveState() e dbLoadState(), sem se importar com o transporte. */
@@ -3668,7 +3668,7 @@ function showToast(msg) {
 }
 
 /* ===================== Suporte: notificação de novas mensagens em tickets ===================== */
-// Não temos WebSocket/push aqui (é tudo Netlify Functions sem servidor persistente), então a
+// Não temos WebSocket/push aqui (é tudo functions serverless, sem servidor persistente), então a
 // "notificação em tempo real" é feita com polling: a cada 20s a gente confere se chegou
 // mensagem nova de "quem não é você" (admin checa mensagens do usuário, usuário checa
 // mensagens do admin) e, se sim, toca um som e mostra um aviso. O que já foi visto fica
@@ -3783,7 +3783,7 @@ let _ticketPollTimer = null;
 let _ticketPollOpts = null;
 
 // 60s em vez de 20s: pra notificação de ticket (que não é chat em tempo real) não faz
-// diferença perceptível, mas gera um terço das chamadas às Netlify Functions.
+// diferença perceptível, mas gera um terço das chamadas às functions.
 const TICKET_POLL_INTERVAL_MS = 60000;
 
 function startTicketNotifications(opts) {

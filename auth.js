@@ -1,6 +1,6 @@
 /* ===================== Autenticação (login / cadastro / aprovação) =====================
    Esse arquivo roda ANTES do app de verdade aparecer: ele decide se mostra a tela de
-   login/cadastro (#auth-gate) ou o app (#app-root), conversando com as Netlify Functions
+   login/cadastro (#auth-gate) ou o app (#app-root), conversando com as functions (Vercel)
    em /api/*. O app.js já está carregado nesse ponto (ele só não chamou startApp() ainda —
    isso é o auth.js quem decide, depois de confirmar a sessão). */
 
