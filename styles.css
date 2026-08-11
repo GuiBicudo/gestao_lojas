@@ -628,6 +628,8 @@ h1.store-title, h1.page-title {
 
 .table-wrap {
   overflow-x: auto;
+  overflow-y: auto;
+  max-height: 68vh;
   border: 1px solid var(--line-soft);
   border-radius: 8px;
 }

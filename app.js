@@ -120,12 +120,23 @@ function defaultState() {
       tarifa: 0.7894,
     },
     profile: {
-      nome: "ShopStock",
+      // nome da LOJA da pessoa (personalizável) — "ShopStock" já é a marca fixa mostrada
+      // acima, então esse campo começa vazio até a pessoa preencher (no cadastro ou no
+      // Perfil). Enquanto vazio, a linha correspondente no menu fica escondida.
+      nome: "",
       icone: null,
       // ramos do negócio: controla se as abas/seletor "Impressão 3D" e "Produtos"
       // aparecem nas telas de Lojas e Precificação, e a frase embaixo do nome no menu
       ramos: { threeD: true, produtos: true },
     },
+    // lembra, pelo nome normalizado do produto, se ele é "Impressão 3D" ou "Produtos" —
+    // preenchido automaticamente quando a pessoa escolhe na importação de relatório (Shopee
+    // etc.), pra não precisar escolher de novo pro mesmo produto numa próxima importação
+    shopeeProdutoTipos: {},
+    // lembra, também pelo nome normalizado do produto, os valores de "Insumos" e "Gasto
+    // p/ levar" preenchidos na importação — pra não precisar digitar de novo pro mesmo
+    // produto nem nessa importação (propaga pras outras linhas iguais) nem nas próximas
+    shopeeProdutoInsumos: {},
     stores: {
       shopee: [exampleProduct3D(PRINTER_A1, fil1, "2026-06-15", "SHP-100234"), exampleProdutoRevenda("2026-06-20", "SHP-100311")],
       ml: [exampleProduct3D(PRINTER_A1_MINI, fil2, "2026-07-10", "ML-582910"), exampleProdutoRevenda("2026-07-18", "ML-583067")],
@@ -170,7 +181,9 @@ function migrateTaxaME(row) {
 
 function normalizeState(parsed) {
   STORE_META.forEach(s => { if (!parsed.stores[s.key]) parsed.stores[s.key] = []; });
-  if (!parsed.profile) parsed.profile = { nome: "ShopStock", icone: null };
+  if (!parsed.profile) parsed.profile = { nome: "", icone: null };
+  if (!parsed.shopeeProdutoTipos) parsed.shopeeProdutoTipos = {};
+  if (!parsed.shopeeProdutoInsumos) parsed.shopeeProdutoInsumos = {};
   if (!parsed.pricing) parsed.pricing = { threeD: [], produtos: [] };
   if (!parsed.pricing.threeD) parsed.pricing.threeD = [];
   if (!parsed.pricing.produtos) parsed.pricing.produtos = [];
@@ -1143,6 +1156,40 @@ function normalizeProdutoName(s) {
   return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 }
 
+// pega o tipo (Impressão 3D / Produtos) que a pessoa já escolheu antes pra esse mesmo nome
+// de produto numa importação anterior, ou null se nunca escolheu
+function getShopeeTipoOverride(nomeProduto) {
+  const key = normalizeProdutoName(nomeProduto);
+  return key && state.shopeeProdutoTipos[key] ? state.shopeeProdutoTipos[key] : null;
+}
+
+// guarda a escolha de tipo feita na importação, pra próxima vez que aparecer o mesmo
+// produto (mesmo nome) ele já vir marcado sozinho
+function rememberShopeeTipo(nomeProduto, tipo) {
+  const key = normalizeProdutoName(nomeProduto);
+  if (key && tipo) state.shopeeProdutoTipos[key] = tipo;
+}
+
+// pega os valores de Insumos/Gasto p/ levar lembrados de uma importação anterior pra esse
+// mesmo nome de produto, ou null se nunca foi preenchido
+function getShopeeInsumosOverride(nomeProduto) {
+  const key = normalizeProdutoName(nomeProduto);
+  return key && state.shopeeProdutoInsumos[key] ? state.shopeeProdutoInsumos[key] : null;
+}
+
+// guarda os valores de Insumos/Gasto p/ levar preenchidos na importação, pra próxima vez
+// que aparecer o mesmo produto eles já virem preenchidos sozinhos. Só atualiza o campo que
+// realmente veio preenchido — não apaga o outro se só um dos dois foi digitado dessa vez.
+function rememberShopeeInsumos(nomeProduto, insumos, gastoLevar) {
+  const key = normalizeProdutoName(nomeProduto);
+  if (!key || (!hasVal(insumos) && !hasVal(gastoLevar))) return;
+  const atual = state.shopeeProdutoInsumos[key] || {};
+  state.shopeeProdutoInsumos[key] = {
+    insumos: hasVal(insumos) ? insumos : (hasVal(atual.insumos) ? atual.insumos : ""),
+    gastoLevar: hasVal(gastoLevar) ? gastoLevar : (hasVal(atual.gastoLevar) ? atual.gastoLevar : ""),
+  };
+}
+
 // procura, no catálogo de precificação e nos produtos já cadastrados em qualquer loja, algo
 // com nome parecido — usado pra puxar impressora/filamento/embalagem automaticamente pros
 // pedidos importados, em vez de deixar tudo em branco
@@ -1208,8 +1255,17 @@ function parseShopeeReportRow(row) {
   return { numeroPedido, produto, data, precoVenda: round2(subtotal), recebido: round2(recebido) };
 }
 
-// monta a linha pronta pra entrar em state.stores.shopee, puxando do catálogo o que der
-function buildShopeeImportRow(parsed, match) {
+// monta a linha pronta pra entrar em state.stores.shopee, puxando do catálogo o que der.
+// "tipo" é o tipo já resolvido (escolhido na tela de importação, vindo do match do catálogo,
+// de uma escolha lembrada de importação anterior, ou selecionado manualmente pela pessoa) —
+// só usa os dados extras do match (impressora/filamento/insumos/embalagem) quando o tipo do
+// match bate com o tipo final, senão entra em branco pra completar depois. "extra" traz os
+// valores de Insumos/Gasto p/ levar preenchidos (ou lembrados) na tela de importação, que
+// têm prioridade sobre o que veio do catálogo.
+function buildShopeeImportRow(parsed, match, tipo, extra) {
+  extra = extra || {};
+  const finalTipo = tipo || (match && match.tipo) || TIPO_REVENDA;
+  const useMatch = match && match.tipo === finalTipo ? match : null;
   const base = {
     id: uid(), example: false,
     produto: parsed.produto,
@@ -1218,21 +1274,21 @@ function buildShopeeImportRow(parsed, match) {
     precoVenda: parsed.precoVenda,
     recebido: parsed.recebido,
     taxaMETipo: "nenhum",
-    embalagemId: match && match.embalagemId ? match.embalagemId : "",
-    gastoLevar: match && hasVal(match.gastoLevar) ? match.gastoLevar : "",
+    embalagemId: useMatch && useMatch.embalagemId ? useMatch.embalagemId : "",
+    gastoLevar: hasVal(extra.gastoLevar) ? extra.gastoLevar : (useMatch && hasVal(useMatch.gastoLevar) ? useMatch.gastoLevar : ""),
   };
-  if (match && match.tipo === TIPO_3D) {
+  if (finalTipo === TIPO_3D) {
     return Object.assign(base, {
       tipo: TIPO_3D,
-      impressora: match.impressora || "",
-      filamentoId: match.filamentoId || "",
-      peso: hasVal(match.peso) ? match.peso : "",
-      tempo: hasVal(match.tempo) ? match.tempo : "",
+      impressora: useMatch ? useMatch.impressora || "" : "",
+      filamentoId: useMatch ? useMatch.filamentoId || "" : "",
+      peso: useMatch && hasVal(useMatch.peso) ? useMatch.peso : "",
+      tempo: useMatch && hasVal(useMatch.tempo) ? useMatch.tempo : "",
     });
   }
   return Object.assign(base, {
     tipo: TIPO_REVENDA,
-    insumos: match && hasVal(match.insumos) ? match.insumos : "",
+    insumos: hasVal(extra.insumos) ? extra.insumos : (useMatch && hasVal(useMatch.insumos) ? useMatch.insumos : ""),
   });
 }
 
@@ -1255,7 +1311,16 @@ async function handleShopeeReportFile(file) {
     const parsed = parseShopeeReportRow(row);
     if (!parsed) { skippedCancelado++; return; }
     if (findProductByOrderNumber(parsed.numeroPedido)) { skippedDuplicado++; return; }
-    candidates.push({ parsed, match: findCatalogMatchByName(parsed.produto), include: true });
+    const match = findCatalogMatchByName(parsed.produto);
+    // se não achou no catálogo, tenta puxar o tipo de uma escolha lembrada de uma
+    // importação anterior pro mesmo nome de produto — assim não pergunta de novo
+    const tipo = match ? match.tipo : getShopeeTipoOverride(parsed.produto);
+    // mesma ideia pros valores de Insumos/Gasto p/ levar: prioridade pro que já foi
+    // lembrado de uma importação anterior, senão puxa do catálogo se combinou
+    const savedExtra = getShopeeInsumosOverride(parsed.produto);
+    const insumos = savedExtra && hasVal(savedExtra.insumos) ? savedExtra.insumos : (match && hasVal(match.insumos) ? match.insumos : "");
+    const gastoLevar = savedExtra && hasVal(savedExtra.gastoLevar) ? savedExtra.gastoLevar : (match && hasVal(match.gastoLevar) ? match.gastoLevar : "");
+    candidates.push({ parsed, match, tipo, insumos, gastoLevar, include: true });
   });
 
   if (candidates.length === 0 && skippedCancelado === 0 && skippedDuplicado === 0) {
@@ -1273,17 +1338,31 @@ function openShopeeImportPreview(candidates, meta) {
   backdrop.id = "shopee-import-backdrop";
   backdrop.className = "ticket-modal-backdrop";
 
-  const rowsHtml = candidates.map((c, i) => `
+  const rowsHtml = candidates.map((c, i) => {
+    const hint = c.match
+      ? "combinou com o catálogo"
+      : (c.tipo ? "lembrado de uma importação anterior" : "");
+    return `
     <tr>
       <td><input type="checkbox" data-idx="${i}" ${c.include ? "checked" : ""}></td>
       <td>${escapeHtml(c.parsed.numeroPedido)}</td>
       <td>${escapeHtml(c.parsed.produto)}</td>
       <td>${formatDateBR(c.parsed.data)}</td>
-      <td>${c.match ? (c.match.tipo === TIPO_3D ? "Impressão 3D" : "Produtos") + " · combinou com o catálogo" : "não identificado — completar depois"}</td>
+      <td>
+        <select class="shopee-tipo-select" data-idx="${i}">
+          <option value="" ${!c.tipo ? "selected" : ""}>Selecionar…</option>
+          <option value="${TIPO_3D}" ${c.tipo === TIPO_3D ? "selected" : ""}>Impressão 3D</option>
+          <option value="${TIPO_REVENDA}" ${c.tipo === TIPO_REVENDA ? "selected" : ""}>Produtos</option>
+        </select>
+        ${hint ? `<div class="param-note" style="margin:2px 0 0;">${hint}</div>` : ""}
+      </td>
+      <td><input type="number" step="0.01" min="0" class="shopee-insumos-input" data-idx="${i}" data-produto="${escapeAttr(c.parsed.produto)}" value="${hasVal(c.insumos) ? c.insumos : ""}" placeholder="0,00"></td>
+      <td><input type="number" step="0.01" min="0" class="shopee-gastolevar-input" data-idx="${i}" data-produto="${escapeAttr(c.parsed.produto)}" value="${hasVal(c.gastoLevar) ? c.gastoLevar : ""}" placeholder="0,00"></td>
       <td class="num">${fmtCurrency(c.parsed.precoVenda)}</td>
       <td class="num">${fmtCurrency(c.parsed.recebido)}</td>
     </tr>
-  `).join("");
+  `;
+  }).join("");
 
   const summaryParts = [];
   if (meta.skippedCancelado) summaryParts.push(`${meta.skippedCancelado} cancelado(s) ignorado(s)`);
@@ -1292,11 +1371,11 @@ function openShopeeImportPreview(candidates, meta) {
   backdrop.innerHTML = `
     <div class="ticket-modal wide">
       <h3>Importar relatório da Shopee</h3>
-      <p class="panel-sub">${candidates.length} pedido(s) prontos pra importar${summaryParts.length ? " · " + summaryParts.join(" · ") : ""}. Produtos sem correspondência no seu catálogo entram sem impressora/filamento/embalagem selecionados — complete depois. Desmarque o que não quiser importar.</p>
+      <p class="panel-sub">${candidates.length} pedido(s) prontos pra importar${summaryParts.length ? " · " + summaryParts.join(" · ") : ""}. Escolha o tipo (Impressão 3D ou Produtos) e preencha Insumos/Gasto p/ levar de cada um — depois de preenchido uma vez, o sistema lembra pro mesmo produto (nessa importação e nas próximas). Produtos sem correspondência no seu catálogo entram sem impressora/filamento/embalagem selecionados — complete depois. Desmarque o que não quiser importar.</p>
       ${candidates.length > 0 ? `
       <div class="table-wrap" style="max-height:50vh;">
         <table class="data-table">
-          <thead><tr><th></th><th>Nº Pedido</th><th>Produto</th><th>Data</th><th>Classificação</th><th class="num">Venda</th><th class="num">Recebido (estimado)</th></tr></thead>
+          <thead><tr><th></th><th>Nº Pedido</th><th>Produto</th><th>Data</th><th>Classificação</th><th>Insumos (R$)</th><th>Gasto p/ levar (R$)</th><th class="num">Venda</th><th class="num">Recebido (estimado)</th></tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
       </div>` : ""}
@@ -1316,9 +1395,46 @@ function openShopeeImportPreview(candidates, meta) {
     cb.addEventListener("change", () => { candidates[Number(cb.dataset.idx)].include = cb.checked; });
   });
 
+  backdrop.querySelectorAll("select.shopee-tipo-select[data-idx]").forEach(sel => {
+    sel.addEventListener("change", () => { candidates[Number(sel.dataset.idx)].tipo = sel.value || null; });
+  });
+
+  // Preenche Insumos ou Gasto p/ levar numa linha e propaga na hora pras outras linhas
+  // dessa mesma importação que sejam do mesmo produto — assim não precisa repetir pedido
+  // por pedido quando o mesmo produto aparece várias vezes no relatório.
+  function wireExtraInput(selector, field) {
+    backdrop.querySelectorAll(selector).forEach(inp => {
+      inp.addEventListener("input", () => {
+        const idx = Number(inp.dataset.idx);
+        const value = inp.value;
+        candidates[idx][field] = value;
+        const key = normalizeProdutoName(inp.dataset.produto);
+        candidates.forEach((c, j) => {
+          if (j === idx || normalizeProdutoName(c.parsed.produto) !== key) return;
+          c[field] = value;
+          const otherInput = backdrop.querySelector(`${selector}[data-idx="${j}"]`);
+          if (otherInput) otherInput.value = value;
+        });
+      });
+    });
+  }
+  wireExtraInput(".shopee-insumos-input", "insumos");
+  wireExtraInput(".shopee-gastolevar-input", "gastoLevar");
+
   backdrop.querySelector("#shopee-import-confirm").addEventListener("click", () => {
     const toImport = candidates.filter(c => c.include);
-    toImport.forEach(c => state.stores.shopee.push(buildShopeeImportRow(c.parsed, c.match)));
+
+    const semTipo = toImport.filter(c => !c.tipo);
+    if (semTipo.length > 0) {
+      alert(`Selecione o tipo (Impressão 3D ou Produtos) pra ${semTipo.length} pedido(s) marcado(s) antes de importar.`);
+      return;
+    }
+
+    toImport.forEach(c => {
+      state.stores.shopee.push(buildShopeeImportRow(c.parsed, c.match, c.tipo, { insumos: c.insumos, gastoLevar: c.gastoLevar }));
+      rememberShopeeTipo(c.parsed.produto, c.tipo);
+      rememberShopeeInsumos(c.parsed.produto, c.insumos, c.gastoLevar);
+    });
     saveState();
     backdrop.remove();
     if (activeTab === "shopee") renderContent();
@@ -2846,19 +2962,25 @@ function ramosLabel() {
 }
 
 function renderBrand() {
-  const nameEl = document.querySelector(".brand-text strong");
-  const subEl = document.querySelector(".brand-text span");
+  // "ShopStock" é a marca fixa do sistema — não muda mesmo que a pessoa personalize o nome
+  // da loja dela. O nome da loja (editável no Perfil ou no cadastro) aparece numa linha
+  // própria logo abaixo, e a frase dos ramos do negócio continua por último.
+  const storeNameEl = document.querySelector(".brand-store-name");
+  const ramosEl = document.querySelector(".brand-ramos");
   const markEl = document.querySelector(".brand-mark");
-  const nome = (state.profile && state.profile.nome) || "ShopStock";
+  const nomeLoja = (state.profile && state.profile.nome) || "";
   const ramos = ramosLabel();
-  if (nameEl) nameEl.innerHTML = `${escapeHtml(nome)} <span class="brand-flag" title="Brasil">🇧🇷</span>`;
-  if (subEl) subEl.textContent = ramos;
+  if (storeNameEl) {
+    storeNameEl.textContent = nomeLoja;
+    storeNameEl.style.display = nomeLoja ? "" : "none";
+  }
+  if (ramosEl) ramosEl.textContent = ramos;
   if (markEl) {
     markEl.innerHTML = state.profile && state.profile.icone
       ? `<img src="${state.profile.icone}" alt="Ícone" class="brand-icon-img">`
       : "◇";
   }
-  document.title = `${nome} — ${ramos}`;
+  document.title = nomeLoja ? `${nomeLoja} — ShopStock` : `ShopStock — ${ramos}`;
 }
 
 function renderPerfilPanel() {
@@ -2888,7 +3010,7 @@ function renderPerfilPanel() {
       <div class="param-card">
         <label>Nome da loja</label>
         <input type="text" class="text-field" id="profile-nome" value="${escapeAttr(state.profile.nome)}" placeholder="Ex: Minha Loja 3D">
-        <p class="param-note">Esse nome aparece no topo do menu lateral.</p>
+        <p class="param-note">Esse nome aparece no menu lateral, logo abaixo de "ShopStock". Deixe em branco para não mostrar essa linha.</p>
       </div>
       <div class="param-card">
         <label>Ramos do negócio</label>
