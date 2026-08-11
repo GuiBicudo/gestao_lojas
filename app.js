@@ -1349,7 +1349,7 @@ function openShopeeImportPreview(candidates, meta) {
       <td>${escapeHtml(c.parsed.produto)}</td>
       <td>${formatDateBR(c.parsed.data)}</td>
       <td>
-        <select class="shopee-tipo-select" data-idx="${i}">
+        <select class="shopee-tipo-select" data-idx="${i}" data-produto="${escapeAttr(c.parsed.produto)}">
           <option value="" ${!c.tipo ? "selected" : ""}>Selecionar…</option>
           <option value="${TIPO_3D}" ${c.tipo === TIPO_3D ? "selected" : ""}>Impressão 3D</option>
           <option value="${TIPO_REVENDA}" ${c.tipo === TIPO_REVENDA ? "selected" : ""}>Produtos</option>
@@ -1375,7 +1375,7 @@ function openShopeeImportPreview(candidates, meta) {
       ${candidates.length > 0 ? `
       <div class="table-wrap" style="max-height:50vh;">
         <table class="data-table">
-          <thead><tr><th></th><th>Nº Pedido</th><th>Produto</th><th>Data</th><th>Classificação</th><th>Insumos (R$)</th><th>Gasto p/ levar (R$)</th><th class="num">Venda</th><th class="num">Recebido (estimado)</th></tr></thead>
+          <thead><tr><th class="center"><input type="checkbox" id="shopee-import-select-all" ${candidates.every(c => c.include) ? "checked" : ""}></th><th>Nº Pedido</th><th>Produto</th><th>Data</th><th>Classificação</th><th>Insumos (R$)</th><th>Gasto p/ levar (R$)</th><th class="num">Venda</th><th class="num">Recebido (estimado)</th></tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
       </div>` : ""}
@@ -1391,12 +1391,40 @@ function openShopeeImportPreview(candidates, meta) {
   backdrop.querySelector("#shopee-import-cancel").addEventListener("click", () => backdrop.remove());
   backdrop.addEventListener("click", e => { if (e.target === backdrop) backdrop.remove(); });
 
-  backdrop.querySelectorAll('input[type="checkbox"][data-idx]').forEach(cb => {
-    cb.addEventListener("change", () => { candidates[Number(cb.dataset.idx)].include = cb.checked; });
+  const rowCheckboxes = backdrop.querySelectorAll('input[type="checkbox"][data-idx]');
+  const selectAllEl = backdrop.querySelector("#shopee-import-select-all");
+
+  rowCheckboxes.forEach(cb => {
+    cb.addEventListener("change", () => {
+      candidates[Number(cb.dataset.idx)].include = cb.checked;
+      if (selectAllEl) selectAllEl.checked = Array.from(rowCheckboxes).every(c => c.checked);
+    });
   });
 
+  if (selectAllEl) {
+    selectAllEl.addEventListener("change", () => {
+      rowCheckboxes.forEach(cb => {
+        cb.checked = selectAllEl.checked;
+        candidates[Number(cb.dataset.idx)].include = selectAllEl.checked;
+      });
+    });
+  }
+
+  // Escolher o tipo numa linha também propaga na hora pras outras linhas dessa mesma
+  // importação que sejam do mesmo produto — mesmo comportamento do Insumos/Gasto p/ levar.
   backdrop.querySelectorAll("select.shopee-tipo-select[data-idx]").forEach(sel => {
-    sel.addEventListener("change", () => { candidates[Number(sel.dataset.idx)].tipo = sel.value || null; });
+    sel.addEventListener("change", () => {
+      const idx = Number(sel.dataset.idx);
+      const value = sel.value || null;
+      candidates[idx].tipo = value;
+      const key = normalizeProdutoName(sel.dataset.produto);
+      candidates.forEach((c, j) => {
+        if (j === idx || normalizeProdutoName(c.parsed.produto) !== key) return;
+        c.tipo = value;
+        const otherSel = backdrop.querySelector(`select.shopee-tipo-select[data-idx="${j}"]`);
+        if (otherSel) otherSel.value = value || "";
+      });
+    });
   });
 
   // Preenche Insumos ou Gasto p/ levar numa linha e propaga na hora pras outras linhas
