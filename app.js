@@ -743,6 +743,23 @@ function renderContent() {
   else content.appendChild(renderStorePanel(activeTab));
 }
 
+// Chama renderContent() mas mantém a posição de rolagem (vertical e horizontal) das
+// tabelas — sem isso, toda vez que algo é excluído (ou qualquer outra ação que redesenhe o
+// painel) a tabela voltava pro canto superior esquerdo, o que atrapalha excluir vários itens
+// em sequência numa tabela larga/rolada pro lado.
+function renderContentPreserveScroll() {
+  const content = document.getElementById("content");
+  const before = Array.from(content.querySelectorAll(".table-wrap")).map(w => ({ left: w.scrollLeft, top: w.scrollTop }));
+  renderContent();
+  const after = content.querySelectorAll(".table-wrap");
+  after.forEach((w, i) => {
+    if (before[i]) {
+      w.scrollLeft = before[i].left;
+      w.scrollTop = before[i].top;
+    }
+  });
+}
+
 /* ---------- Filamentos ---------- */
 
 function renderFilamentsPanel() {
@@ -871,11 +888,12 @@ function filamentRow(f) {
 
   updateStockCells();
 
-  tr.querySelector('[data-action="delete"]').addEventListener("click", () => {
-    if (!confirm(`Remover o filamento "${f.nome || "(sem nome)"}"? Produtos que usam ele ficarão sem filamento selecionado.`)) return;
-    state.filaments = state.filaments.filter(x => x.id !== f.id);
-    saveState();
-    renderContent();
+  tr.querySelector('[data-action="delete"]').addEventListener("click", e => {
+    confirmPopover(e.currentTarget, `Remover o filamento "${f.nome || "(sem nome)"}"? Produtos que usam ele ficarão sem filamento selecionado.`, () => {
+      state.filaments = state.filaments.filter(x => x.id !== f.id);
+      saveState();
+      renderContentPreserveScroll();
+    });
   });
 
   return tr;
@@ -1003,11 +1021,12 @@ function packagingRow(p) {
     });
   });
 
-  tr.querySelector('[data-action="delete"]').addEventListener("click", () => {
-    if (!confirm(`Remover a embalagem "${p.nome || "(sem nome)"}"? Produtos que usam ela ficarão sem embalagem selecionada.`)) return;
-    state.packagings = state.packagings.filter(x => x.id !== p.id);
-    saveState();
-    renderContent();
+  tr.querySelector('[data-action="delete"]').addEventListener("click", e => {
+    confirmPopover(e.currentTarget, `Remover a embalagem "${p.nome || "(sem nome)"}"? Produtos que usam ela ficarão sem embalagem selecionada.`, () => {
+      state.packagings = state.packagings.filter(x => x.id !== p.id);
+      saveState();
+      renderContentPreserveScroll();
+    });
   });
 
   updateCalcCells();
@@ -1093,11 +1112,12 @@ function printerRow(p) {
     });
   });
 
-  tr.querySelector('[data-action="delete"]').addEventListener("click", () => {
-    if (!confirm(`Remover a impressora "${p.nome || "(sem nome)"}"? Produtos que usam ela ficarão sem impressora selecionada.`)) return;
-    state.printers = state.printers.filter(x => x.id !== p.id);
-    saveState();
-    renderContent();
+  tr.querySelector('[data-action="delete"]').addEventListener("click", e => {
+    confirmPopover(e.currentTarget, `Remover a impressora "${p.nome || "(sem nome)"}"? Produtos que usam ela ficarão sem impressora selecionada.`, () => {
+      state.printers = state.printers.filter(x => x.id !== p.id);
+      saveState();
+      renderContentPreserveScroll();
+    });
   });
 
   return tr;
@@ -1670,11 +1690,12 @@ function bindRowInputs(tr, row) {
 }
 
 function bindRowDelete(tr, storeKey, row) {
-  tr.querySelector('[data-action="delete"]').addEventListener("click", () => {
-    if (!confirm(`Remover o produto "${row.produto || "(sem nome)"}"?`)) return;
-    state.stores[storeKey] = state.stores[storeKey].filter(r => r.id !== row.id);
-    saveState();
-    renderContent();
+  tr.querySelector('[data-action="delete"]').addEventListener("click", e => {
+    confirmPopover(e.currentTarget, `Remover o produto "${row.produto || "(sem nome)"}"?`, () => {
+      state.stores[storeKey] = state.stores[storeKey].filter(r => r.id !== row.id);
+      saveState();
+      renderContentPreserveScroll();
+    });
   });
 }
 
@@ -1935,11 +1956,12 @@ function bindPricingRowInputs(tr, row) {
 }
 
 function bindPricingRowDelete(tr, listKey, row) {
-  tr.querySelector('[data-action="delete"]').addEventListener("click", () => {
-    if (!confirm(`Remover "${row.produto || "(sem nome)"}" da precificação?`)) return;
-    state.pricing[listKey] = state.pricing[listKey].filter(r => r.id !== row.id);
-    saveState();
-    renderContent();
+  tr.querySelector('[data-action="delete"]').addEventListener("click", e => {
+    confirmPopover(e.currentTarget, `Remover "${row.produto || "(sem nome)"}" da precificação?`, () => {
+      state.pricing[listKey] = state.pricing[listKey].filter(r => r.id !== row.id);
+      saveState();
+      renderContentPreserveScroll();
+    });
   });
 }
 
@@ -2126,11 +2148,12 @@ function adsRow(a) {
     });
   });
 
-  tr.querySelector('[data-action="delete"]').addEventListener("click", () => {
-    if (!confirm("Remover este registro de ADS?")) return;
-    state.ads = state.ads.filter(x => x.id !== a.id);
-    saveState();
-    renderContent();
+  tr.querySelector('[data-action="delete"]').addEventListener("click", e => {
+    confirmPopover(e.currentTarget, "Remover este registro de ADS?", () => {
+      state.ads = state.ads.filter(x => x.id !== a.id);
+      saveState();
+      renderContentPreserveScroll();
+    });
   });
 
   return tr;
@@ -2227,11 +2250,12 @@ function custoFixoRow(c) {
     });
   });
 
-  tr.querySelector('[data-action="delete"]').addEventListener("click", () => {
-    if (!confirm(`Remover o custo fixo "${c.nome || "(sem nome)"}"?`)) return;
-    state.custosFixos = state.custosFixos.filter(x => x.id !== c.id);
-    saveState();
-    renderContent();
+  tr.querySelector('[data-action="delete"]').addEventListener("click", e => {
+    confirmPopover(e.currentTarget, `Remover o custo fixo "${c.nome || "(sem nome)"}"?`, () => {
+      state.custosFixos = state.custosFixos.filter(x => x.id !== c.id);
+      saveState();
+      renderContentPreserveScroll();
+    });
   });
 
   return tr;
@@ -2403,11 +2427,12 @@ function devolucaoRow(dev) {
     });
   });
 
-  tr.querySelector('[data-action="delete"]').addEventListener("click", () => {
-    if (!confirm("Remover esta devolução?")) return;
-    state.devolucoes = state.devolucoes.filter(d => d.id !== dev.id);
-    saveState();
-    renderContent();
+  tr.querySelector('[data-action="delete"]').addEventListener("click", e => {
+    confirmPopover(e.currentTarget, "Remover esta devolução?", () => {
+      state.devolucoes = state.devolucoes.filter(d => d.id !== dev.id);
+      saveState();
+      renderContentPreserveScroll();
+    });
   });
 
   updateDevolucaoRowCalcCells(tr, dev);
@@ -3815,6 +3840,58 @@ function showToast(msg) {
   el.classList.add("show");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove("show"), 2400);
+}
+
+// Mini confirmação flutuante ancorada no botão que foi clicado (ex: o "×" de excluir uma
+// linha), em vez do confirm() nativo do navegador — menos intrusivo, some clicando fora ou
+// em "Não", e deixa excluir vários itens em sequência sem interromper o fluxo toda hora.
+function confirmPopover(anchorBtn, message, onConfirm) {
+  document.querySelectorAll(".confirm-popover").forEach(p => p.remove());
+
+  const pop = document.createElement("div");
+  pop.className = "confirm-popover";
+  pop.innerHTML = `
+    <p>${escapeHtml(message)}</p>
+    <div class="confirm-popover-actions">
+      <button type="button" class="ghost-btn small" data-act="no">Não</button>
+      <button type="button" class="primary-btn small" data-act="yes">Sim</button>
+    </div>
+  `;
+  document.body.appendChild(pop);
+
+  const rect = anchorBtn.getBoundingClientRect();
+  const popRect = pop.getBoundingClientRect();
+  let left = rect.right - popRect.width;
+  if (left < 8) left = 8;
+  if (left + popRect.width > window.innerWidth - 8) left = window.innerWidth - popRect.width - 8;
+  let top = rect.bottom + 6;
+  if (top + popRect.height > window.innerHeight - 8) top = rect.top - popRect.height - 6;
+  pop.style.left = `${Math.max(8, left)}px`;
+  pop.style.top = `${Math.max(8, top)}px`;
+
+  function close() {
+    pop.remove();
+    document.removeEventListener("mousedown", onOutside, true);
+    document.removeEventListener("keydown", onKey, true);
+  }
+  function onOutside(e) {
+    if (!pop.contains(e.target) && e.target !== anchorBtn) close();
+  }
+  function onKey(e) {
+    if (e.key === "Escape") close();
+  }
+  // Registra o listener de "clicar fora" só depois desse mesmo clique terminar de propagar,
+  // senão o próprio clique que abriu o popover já fecharia ele na hora.
+  setTimeout(() => {
+    document.addEventListener("mousedown", onOutside, true);
+    document.addEventListener("keydown", onKey, true);
+  }, 0);
+
+  pop.querySelector('[data-act="no"]').addEventListener("click", close);
+  pop.querySelector('[data-act="yes"]').addEventListener("click", () => {
+    close();
+    onConfirm();
+  });
 }
 
 /* ===================== Suporte: notificação de novas mensagens em tickets ===================== */
