@@ -48,6 +48,8 @@ Se você já tinha essas variáveis configuradas no Netlify, use os mesmos valor
 
 4. Clique em **Deploy**. A Vercel instala as dependências do `package.json` e publica o site com as functions em `/api/*` automaticamente (sem precisar de nenhum arquivo de redirecionamento — isso já é o comportamento padrão dela pra pastas `api/`).
 
+**Sobre o número de functions:** o plano gratuito (Hobby) da Vercel permite no máximo 12 Serverless Functions por deploy. Por isso as ~19 rotas que existiam (uma por arquivo, como era no Netlify) foram agrupadas em só 4 arquivos — `api/auth/[action].js` (login, cadastro, logout, sessão, recuperação de senha), `api/admin/[action].js` (aprovações, usuários, tickets do admin), `api/tickets/[action].js` (tickets do usuário) e `api/state.js` (salvar/carregar dados). A lógica de cada rota é a mesma de antes, só a organização dos arquivos mudou — isso também deixa bastante espaço pra crescer sem esbarrar no limite de novo.
+
 ## 5. Testar
 
 1. Abra o site publicado. Você deve ver a tela de login/cadastro.

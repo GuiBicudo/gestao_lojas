@@ -95,7 +95,7 @@ function renderAuthGate(mode, opts) {
     if (mode === "forgot") {
       submitBtn.disabled = true;
       submitBtn.textContent = "Enviando...";
-      const { data } = await apiPost("/api/forgot-password", { email });
+      const { data } = await apiPost("/api/auth/forgot-password", { email });
       renderAuthGate("login", { notice: data.message || "Se esse e-mail estiver cadastrado, você vai receber um link de recuperação em instantes.", noticeType: "good" });
       return;
     }
@@ -114,7 +114,7 @@ function renderAuthGate(mode, opts) {
     submitBtn.textContent = mode === "login" ? "Entrando..." : "Cadastrando...";
 
     if (mode === "login") {
-      const { ok, status, data } = await apiPost("/api/login", { email, password });
+      const { ok, status, data } = await apiPost("/api/auth/login", { email, password });
       if (ok) {
         await boot();
         return;
@@ -123,7 +123,7 @@ function renderAuthGate(mode, opts) {
       if (status === 403 && data.error === "pending") notice = "Seu cadastro ainda está aguardando aprovação.";
       renderAuthGate("login", { notice, noticeType: "bad" });
     } else {
-      const { ok, data } = await apiPost("/api/signup", { email, password });
+      const { ok, data } = await apiPost("/api/auth/signup", { email, password });
       if (ok) {
         renderAuthGate("login", { notice: data.message || "Cadastro enviado! Você poderá entrar assim que for aprovado.", noticeType: "good" });
         return;
@@ -177,7 +177,7 @@ function renderResetForm(token, opts) {
     submitBtn.disabled = true;
     submitBtn.textContent = "Redefinindo...";
 
-    const { ok, data } = await apiPost("/api/reset-password", { token, password });
+    const { ok, data } = await apiPost("/api/auth/reset-password", { token, password });
     clearResetParam();
     if (ok) {
       renderAuthGate("login", { notice: data.message || "Senha redefinida! Você já pode entrar com a nova senha.", noticeType: "good" });
@@ -211,7 +211,7 @@ async function renderBlockedGate(opts) {
 
   authGate.querySelector("#blocked-logout-link").addEventListener("click", async e => {
     e.preventDefault();
-    try { await apiPost("/api/logout"); } catch (err) {}
+    try { await apiPost("/api/auth/logout"); } catch (err) {}
     window.location.reload();
   });
 
@@ -227,7 +227,7 @@ async function renderBlockedGate(opts) {
   // assim dá pra continuar a mesma conversa em vez de abrir um ticket novo toda hora.
   let openTicket = null;
   try {
-    const res = await fetch("/api/my-tickets");
+    const res = await fetch("/api/tickets/mine");
     const data = await res.json();
     openTicket = (data.tickets || []).find(t => t.status === "open") || null;
   } catch (e) {}
@@ -253,7 +253,7 @@ async function renderBlockedGate(opts) {
     const submitBtn = area.querySelector("#blocked-ticket-submit");
     submitBtn.disabled = true;
     submitBtn.textContent = "Enviando...";
-    const { ok } = await apiPost("/api/create-ticket", { subject, message });
+    const { ok } = await apiPost("/api/tickets/create", { subject, message });
     if (ok) {
       renderBlockedGate({ notice: "Ticket enviado! O administrador vai analisar e entrar em contato.", noticeType: "good" });
     } else {
@@ -284,7 +284,7 @@ async function boot() {
 
   let me;
   try {
-    const res = await fetch("/api/me");
+    const res = await fetch("/api/auth/me");
     me = await res.json();
   } catch (e) {
     renderAuthGate("login", { notice: "Não foi possível conectar ao servidor agora. Tente novamente.", noticeType: "bad" });
@@ -311,7 +311,7 @@ async function boot() {
 }
 
 document.getElementById("btn-logout").addEventListener("click", async () => {
-  try { await apiPost("/api/logout"); } catch (e) {}
+  try { await apiPost("/api/auth/logout"); } catch (e) {}
   window.location.reload();
 });
 

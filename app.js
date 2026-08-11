@@ -350,8 +350,8 @@ function saveState() {
 
 /* ===================== Banco de dados (Neon, via Vercel Functions) =====================
    Os dados não ficam mais só no navegador: cada usuário aprovado tem seu próprio estado
-   salvo no Postgres (Neon), lido/gravado através das functions em /api/state-get e
-   /api/state-save (veja a pasta api/). O cookie de sessão (httpOnly) já identifica
+   salvo no Postgres (Neon), lido/gravado através das functions em GET /api/state e
+   POST /api/state (veja a pasta api/). O cookie de sessão (httpOnly) já identifica
    quem está logado — essas chamadas não precisam mandar usuário/senha de novo.
    Essa camada continua isolada de propósito: só ela sabe "onde" os dados moram; o resto
    do app só chama saveState() e dbLoadState(), sem se importar com o transporte. */
@@ -365,7 +365,7 @@ function dbSaveState(value) {
   if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
   return new Promise((resolve, reject) => {
     saveDebounceTimer = setTimeout(() => {
-      fetch("/api/state-save", {
+      fetch("/api/state", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ data: value }),
@@ -380,7 +380,7 @@ function dbSaveState(value) {
 }
 
 async function dbLoadState() {
-  const res = await fetch("/api/state-get");
+  const res = await fetch("/api/state");
   if (!res.ok) throw new Error("HTTP " + res.status);
   const body = await res.json();
   return body.data ? normalizeState(body.data) : defaultState();
@@ -2973,7 +2973,7 @@ function renderAprovacoesPanel() {
   async function load() {
     body.innerHTML = `<div class="empty-state">Carregando...</div>`;
     try {
-      const res = await fetch("/api/admin-pending");
+      const res = await fetch("/api/admin/pending");
       if (!res.ok) throw new Error("HTTP " + res.status);
       const { pending: users } = await res.json();
       if (!users || users.length === 0) {
@@ -3011,7 +3011,7 @@ function renderAprovacoesPanel() {
           const action = btn.dataset.action === "approve" ? "approve" : "reject";
           btn.disabled = true;
           try {
-            const res = await fetch("/api/admin-approve", {
+            const res = await fetch("/api/admin/approve", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ userId: btn.dataset.id, action }),
@@ -3087,7 +3087,7 @@ function renderUsuariosPanel() {
   async function runAction(btn, userId, act, extra) {
     btn.disabled = true;
     try {
-      const res = await fetch("/api/admin-user-action", {
+      const res = await fetch("/api/admin/user-action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId, action: act, ...extra }),
@@ -3106,7 +3106,7 @@ function renderUsuariosPanel() {
   async function load() {
     body.innerHTML = `<div class="empty-state">Carregando...</div>`;
     try {
-      const res = await fetch("/api/admin-users");
+      const res = await fetch("/api/admin/users");
       if (!res.ok) throw new Error("HTTP " + res.status);
       const { users } = await res.json();
       if (!users || users.length === 0) {
@@ -3224,7 +3224,7 @@ function renderTicketsPanel() {
   async function load() {
     body.innerHTML = `<div class="empty-state">Carregando...</div>`;
     try {
-      const res = await fetch("/api/admin-tickets");
+      const res = await fetch("/api/admin/tickets");
       if (!res.ok) throw new Error("HTTP " + res.status);
       const { tickets } = await res.json();
       if (!tickets || tickets.length === 0) {
@@ -3277,7 +3277,7 @@ function renderTicketsPanel() {
         btnStatus.addEventListener("click", async () => {
           btnStatus.disabled = true;
           try {
-            const res = await fetch("/api/admin-ticket-action", {
+            const res = await fetch("/api/admin/ticket-action", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ ticketId: t.id, action: t.status === "open" ? "close" : "reopen" }),
@@ -3299,7 +3299,7 @@ function renderTicketsPanel() {
           if (!confirm(`Excluir esse ticket de ${t.user_email} e toda a conversa? Não dá pra desfazer.`)) return;
           btnDelete.disabled = true;
           try {
-            const res = await fetch("/api/admin-ticket-action", {
+            const res = await fetch("/api/admin/ticket-action", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ ticketId: t.id, action: "delete" }),
@@ -3342,7 +3342,7 @@ async function renderTicketThread(container, ticket, opts) {
 
   let data;
   try {
-    const res = await fetch("/api/ticket-messages?ticketId=" + encodeURIComponent(ticket.id));
+    const res = await fetch("/api/tickets/messages?ticketId=" + encodeURIComponent(ticket.id));
     if (!res.ok) throw new Error("HTTP " + res.status);
     data = await res.json();
   } catch (e) {
@@ -3398,7 +3398,7 @@ async function renderTicketThread(container, ticket, opts) {
     const btn = form.querySelector("button");
     btn.disabled = true;
     try {
-      const res = await fetch("/api/ticket-reply", {
+      const res = await fetch("/api/tickets/reply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ticketId: ticket.id, message }),
@@ -3490,7 +3490,7 @@ async function openSupportModal() {
       submitBtn.disabled = true;
       submitBtn.textContent = "Enviando...";
       try {
-        const res = await fetch("/api/create-ticket", {
+        const res = await fetch("/api/tickets/create", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ subject, message }),
@@ -3511,7 +3511,7 @@ async function openSupportModal() {
     modalBody.innerHTML = `<div class="empty-state">Carregando...</div>`;
     let tickets = [];
     try {
-      const res = await fetch("/api/my-tickets");
+      const res = await fetch("/api/tickets/mine");
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
       tickets = data.tickets || [];
@@ -3718,7 +3718,7 @@ async function pollTicketNotifications(opts) {
   _ticketPollBusy = true;
   try {
     const isAdmin = !!window.isAdmin;
-    const res = await fetch(isAdmin ? "/api/admin-tickets" : "/api/my-tickets");
+    const res = await fetch(isAdmin ? "/api/admin/tickets" : "/api/tickets/mine");
     if (!res.ok) return;
     const data = await res.json();
     const tickets = data.tickets || [];
@@ -3983,7 +3983,7 @@ function renderAccountBadge() {
 
 async function requestPremium() {
   try {
-    await fetch("/api/request-premium", { method: "POST" });
+    await fetch("/api/tickets/request-premium", { method: "POST" });
   } catch (e) {
     console.error(e);
   }
