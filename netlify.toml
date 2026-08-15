@@ -1,0 +1,25 @@
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+[functions]
+  node_bundler = "esbuild"
+
+# Headers de segurança básicos, aplicados a tudo (páginas e /api/*):
+# - X-Frame-Options / frame-ancestors: impede o site ser aberto dentro de um <iframe> em
+#   outro site (clickjacking — alguém sobrepor botões invisíveis por cima do seu site).
+# - X-Content-Type-Options: evita o navegador "adivinhar" o tipo de um arquivo servido.
+# - Referrer-Policy: evita vazar a URL completa (que pode conter dados sensíveis) como
+#   referer quando o site linka pra fora.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    Content-Security-Policy = "frame-ancestors 'none'"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"

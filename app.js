@@ -104,7 +104,7 @@ function defaultState() {
 
   return {
     filaments: [
-      { id: fil1, nome: "PLA Preto Genérico", preco: 79.9, pecas: 2, pesoPeca: 1000, obs: "exemplo — edite ou apague" },
+      { id: fil1, nome: "PLA Preto Genérico", preco: 159.8, pecas: 2, pesoPeca: 1000, obs: "exemplo — edite ou apague" },
       { id: fil2, nome: "PLA Branco Voolt", preco: 94.9, pecas: 1, pesoPeca: 1000, obs: "exemplo — edite ou apague" },
       { id: fil3, nome: "PETG Preto Bambu Lab", preco: 129.9, pecas: 1, pesoPeca: 1000, obs: "exemplo — edite ou apague" },
     ],
@@ -482,9 +482,13 @@ function attachDateMask(el, onValidDate) {
 
 /* ===================== Cálculos ===================== */
 
-function getFilamentPrice(filamentoId) {
+// Custo por grama com base no valor total da compra e no peso total comprado.
+// Ex.: R$ 174,96 por 2 rolos de 1.000 g = R$ 0,08748/g.
+function getFilamentPricePerGram(filamentoId) {
   const f = state.filaments.find(f => f.id === filamentoId);
-  return f ? n(f.preco) : 0;
+  if (!f) return 0;
+  const pesoTotal = n(f.pecas) * n(f.pesoPeca);
+  return pesoTotal > 0 ? n(f.preco) / pesoTotal : 0;
 }
 
 /* ---------- Estoque de filamento -----------
@@ -573,7 +577,7 @@ function calcRow(row) {
   const taxaRS = precoVenda !== null && recebido !== null ? precoVenda - recebido : null;
   const taxaPct = taxaRS !== null && precoVenda ? taxaRS / precoVenda : null;
 
-  const custoFilamento = n(row.peso) / 1000 * getFilamentPrice(row.filamentoId);
+  const custoFilamento = n(row.peso) * getFilamentPricePerGram(row.filamentoId);
   const custoEnergia = n(row.tempo) * (getPrinterPower(row.impressora) / 1000) * n(state.params.tarifa);
   const embalagem = getPackagingUnitPrice(row.embalagemId);
   const gastoLevar = n(row.gastoLevar);
@@ -620,7 +624,7 @@ function calcRow(row) {
 // (se marcada), as duas incidindo sobre o preço final:
 //   precoVenda = custoBase / (1 - taxaPlataforma% - taxaME% - margem%)
 function calcPricing(row) {
-  const custoFilamento = n(row.peso) / 1000 * getFilamentPrice(row.filamentoId);
+  const custoFilamento = n(row.peso) * getFilamentPricePerGram(row.filamentoId);
   const custoEnergia = n(row.tempo) * (getPrinterPower(row.impressora) / 1000) * n(state.params.tarifa);
   const embalagem = getPackagingUnitPrice(row.embalagemId);
   const gastoLevar = n(row.gastoLevar);
@@ -769,7 +773,7 @@ function renderFilamentsPanel() {
     <header class="panel-header">
       <div>
         <h1 class="page-title">Filamentos</h1>
-        <p class="panel-sub">Cadastre cada filamento que você compra: preço por kg, quantas peças (rolos) e o peso de cada uma. O estoque é calculado sozinho — abate automaticamente o peso usado em cada produto de Impressão 3D cadastrado nas lojas.</p>
+        <p class="panel-sub">Cadastre cada filamento que você compra: valor total pago, quantas peças (rolos) e o peso de cada uma. O custo por grama e o estoque são calculados sozinhos — o estoque abate automaticamente o peso usado em cada produto de Impressão 3D cadastrado nas lojas.</p>
       </div>
       <div class="panel-actions">
         <button class="primary-btn" id="fil-add">+ Novo filamento</button>
@@ -802,7 +806,7 @@ function renderFilamentsPanel() {
     <thead>
       <tr>
         <th>Filamento (material + cor)</th>
-        <th class="num">Preço por Kg (R$)</th>
+        <th class="num">Valor Total Pago (R$)</th>
         <th class="num">Peças</th>
         <th class="num">Peso por Peça (g)</th>
         <th class="num calc">Estoque Comprado (g)</th>

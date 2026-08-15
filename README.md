@@ -43,7 +43,7 @@ Pronto — é só acessar esse link (e adicionar aos favoritos/tela inicial do c
 
 ## Funcionalidades
 
-- **Filamentos**: cadastre cada filamento com preço por kg.
+- **Filamentos**: cadastre o valor total pago, a quantidade de rolos e o peso de cada rolo; o custo por grama é calculado automaticamente.
 - **Parâmetros**: potência da A1, da A1 mini e tarifa de energia (R$/kWh) — usados no
   cálculo de custo de energia.
 - **Shopee / Mercado Livre / TikTok Shop**: uma tabela de produtos por loja, com:
